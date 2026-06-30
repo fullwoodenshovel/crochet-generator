@@ -1,0 +1,55 @@
+use three_d::*;
+pub struct OrbitCamera {
+    pub camera: Camera,
+    control: OrbitControl,
+    target: Vec3,
+    fov: Degrees,
+}
+
+impl OrbitCamera {
+    pub fn new(viewport: Viewport, centre: Vec3, radius: f32) -> Self {
+        let fov = degrees(45.0);
+
+        let camera = Camera::new_perspective(
+            viewport,
+            centre + vec3(radius * 2.5, radius * 1.5, radius * 2.5),
+            centre,
+            vec3(0.0, 1.0, 0.0),
+            fov,
+            0.01,
+            radius * 20.0,
+        );
+
+        let control = OrbitControl::new(centre, radius * 0.1, radius * 20.0);
+
+        Self { camera, control, target: centre, fov }
+    }
+
+    pub fn update(&mut self, events: &mut [Event]) -> bool {
+        self.control.handle_events(&mut self.camera, events)
+    }
+
+    pub fn resize(&mut self, viewport: Viewport) {
+        self.camera.set_viewport(viewport);
+    }
+
+    pub fn recentre(&mut self, centre: Vec3, radius: f32) {
+        self.camera.set_view(
+            centre + vec3(radius * 2.5, radius * 1.5, radius * 2.5),
+            centre,
+            vec3(0.0, 1.0, 0.0),
+        );
+        self.control = OrbitControl::new(centre, radius * 0.1, radius * 20.0);
+        self.target = centre;
+    }
+
+    /// Call once per frame after `update()` to keep near/far tight
+    /// around the current orbit distance — fixes z-fighting that gets
+    /// worse the farther the near plane is from the far plane.
+    pub fn tighten_clip_planes(&mut self, radius: f32) {
+        let distance = self.target.distance(self.camera.position());
+        let near = (distance - radius * 2.0).max(radius * 0.001);
+        let far = distance + radius * 4.0;
+        self.camera.set_perspective_projection(self.fov, near, far);
+    }
+}

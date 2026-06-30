@@ -1,0 +1,621 @@
+
+
+README.md:
+```
+This is a project for EPQ that generates a crochet pattern from a 3D STL file
+```
+
+Cargo.toml:
+```
+[package]
+name = "crochet-generator"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+three-d = { version = "0.19", features = ["egui-gui"] }
+stl_io = "0.11"
+anyhow = "1"```
+
+src/camera.rs:
+```
+use three_d::*;
+pub struct OrbitCamera {
+    pub camera: Camera,
+    control: OrbitControl,
+    target: Vec3,
+    fov: Degrees,
+}
+
+impl OrbitCamera {
+    pub fn new(viewport: Viewport, centre: Vec3, radius: f32) -> Self {
+        let fov = degrees(45.0);
+
+        let camera = Camera::new_perspective(
+            viewport,
+            centre + vec3(radius * 2.5, radius * 1.5, radius * 2.5),
+            centre,
+            vec3(0.0, 1.0, 0.0),
+            fov,
+            0.01,
+            radius * 20.0,
+        );
+
+        let control = OrbitControl::new(centre, radius * 0.1, radius * 20.0);
+
+        Self { camera, control, target: centre, fov }
+    }
+
+    pub fn update(&mut self, events: &mut [Event]) -> bool {
+        self.control.handle_events(&mut self.camera, events)
+    }
+
+    pub fn resize(&mut self, viewport: Viewport) {
+        self.camera.set_viewport(viewport);
+    }
+
+    pub fn recentre(&mut self, centre: Vec3, radius: f32) {
+        self.camera.set_view(
+            centre + vec3(radius * 2.5, radius * 1.5, radius * 2.5),
+            centre,
+            vec3(0.0, 1.0, 0.0),
+        );
+        self.control = OrbitControl::new(centre, radius * 0.1, radius * 20.0);
+        self.target = centre;
+    }
+
+    /// Call once per frame after `update()` to keep near/far tight
+    /// around the current orbit distance — fixes z-fighting that gets
+    /// worse the farther the near plane is from the far plane.
+    pub fn tighten_clip_planes(&mut self, radius: f32) {
+        let distance = self.target.distance(self.camera.position());
+        let near = (distance - radius * 2.0).max(radius * 0.001);
+        let far = distance + radius * 4.0;
+        self.camera.set_perspective_projection(self.fov, near, far);
+    }
+}```
+
+src/main.rs:
+```
+mod camera;
+mod debug;
+mod model;
+mod viewer;
+
+use anyhow::Result;
+use viewer::Viewer;
+
+fn main() -> Result<()> {
+    let path = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "model.stl".to_string());
+
+    let viewer = Viewer::new(&path)?;
+
+    viewer.run()
+}```
+
+src/debug.rs:
+```
+use three_d::*;
+
+/// One frame's worth of debug primitives. Clear and re-populate it each
+/// frame, then call `build()` to get renderable objects.
+pub struct DebugRenderer {
+    points: Vec<(Vec3, f32, Srgba, bool)>,
+    edges: Vec<(Vec3, Vec3, f32, Srgba, bool)>,
+    faces: Vec<(Vec<Vec3>, Srgba, bool)>,
+}
+
+pub struct BuildResult(pub Vec<Gm<Mesh, ColorMaterial>>, pub Vec<Gm<Mesh, ColorMaterial>>);
+
+impl DebugRenderer {
+    pub fn new() -> Self {
+        Self {
+            points: Vec::new(),
+            edges: Vec::new(),
+            faces: Vec::new(),
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.points.clear();
+        self.edges.clear();
+        self.faces.clear();
+    }
+
+    /// depth_test = true: occluded by the model normally.
+    /// depth_test = false: always drawn on top (X-ray style).
+    pub fn point(&mut self, position: Vec3, radius: f32, color: Srgba, depth_test: bool) {
+        self.points.push((position, radius, color, depth_test));
+    }
+
+    pub fn edge(&mut self, a: Vec3, b: Vec3, thickness: f32, color: Srgba, depth_test: bool) {
+        self.edges.push((a, b, thickness, color, depth_test));
+    }
+
+    /// 3+ verts, fan-triangulated from verts[0]. No culling, so order
+    /// doesn't matter, but it must be convex (or close enough).
+    pub fn face(&mut self, verts: &[Vec3], color: Srgba, depth_test: bool) {
+        if verts.len() >= 3 {
+            self.faces.push((verts.to_vec(), color, depth_test));
+        }
+    }
+
+    /// Build this frame's debug geometry as renderable objects, split into
+    /// two groups:
+    ///
+    ///   .0 — "occluded" objects: render these in the SAME pass as the
+    ///        model, with normal depth testing.
+    ///   .1 — "overlay" objects: render these in a SECOND pass, after
+    ///        clearing only the depth buffer (see `viewer.rs`). This is
+    ///        what actually guarantees "always on top of everything",
+    ///        rather than relying on a per-material DepthTest::Always
+    ///        flag fighting the renderer's own opaque/transparent split.
+    pub fn build(
+        &self,
+        context: &Context,
+    ) -> BuildResult {
+        let mut occluded = Vec::new();
+        let mut overlay = Vec::new();
+
+        for &(pos, radius, color, depth_test) in &self.points {
+            let mut cpu_mesh = CpuMesh::sphere(8);
+            cpu_mesh
+                .transform(Mat4::from_translation(pos) * Mat4::from_scale(radius))
+                .unwrap();
+
+            let gm = Gm::new(
+                Mesh::new(context, &cpu_mesh),
+                ColorMaterial {
+                    color,
+                    render_states: render_states(),
+                    ..Default::default()
+                },
+            );
+            push(&mut occluded, &mut overlay, gm, depth_test);
+        }
+
+        for &(a, b, thickness, color, depth_test) in &self.edges {
+            let cpu_mesh = stretched_cylinder(a, b, thickness);
+
+            let gm = Gm::new(
+                Mesh::new(context, &cpu_mesh),
+                ColorMaterial {
+                    color,
+                    render_states: render_states(),
+                    ..Default::default()
+                },
+            );
+            push(&mut occluded, &mut overlay, gm, depth_test);
+        }
+
+        for (verts, color, depth_test) in &self.faces {
+            let cpu_mesh = fan_mesh(verts);
+
+            let gm = Gm::new(
+                Mesh::new(context, &cpu_mesh),
+                ColorMaterial {
+                    color: *color,
+                    render_states: render_states(),
+                    ..Default::default()
+                },
+            );
+            push(&mut occluded, &mut overlay, gm, *depth_test);
+        }
+
+        BuildResult(occluded, overlay)
+    }
+}
+
+fn push(
+    occluded: &mut Vec<Gm<Mesh, ColorMaterial>>,
+    overlay: &mut Vec<Gm<Mesh, ColorMaterial>>,
+    gm: Gm<Mesh, ColorMaterial>,
+    depth_test: bool,
+) {
+    if depth_test {
+        occluded.push(gm);
+    } else {
+        overlay.push(gm);
+    }
+}
+
+/// Both groups use plain `Less` depth testing. The "always on top" effect
+/// for overlay objects comes from clearing the depth buffer before their
+/// pass in `viewer.rs`, NOT from a special depth-test mode — this also
+/// means overlay objects still correctly occlude each other if you draw
+/// more than one.
+fn render_states() -> RenderStates {
+    RenderStates {
+        depth_test: DepthTest::Less,
+        cull: Cull::None,
+        ..Default::default()
+    }
+}
+
+/// Build a CpuMesh::cylinder(...) (unit cylinder along +x, radius 1,
+/// length 1) scaled/rotated/translated to run from `a` to `b`.
+fn stretched_cylinder(a: Vec3, b: Vec3, radius: f32) -> CpuMesh {
+    let mut cpu_mesh = CpuMesh::cylinder(8);
+
+    let dir = b - a;
+    let length = dir.magnitude();
+    let dir_norm = if length > 1e-6 { dir / length } else { Vec3::unit_x() };
+
+    let x_axis = Vec3::unit_x();
+    let rotation = if dir_norm.dot(x_axis) > 0.999_99 {
+        Quaternion::from_angle_y(Rad(0.0))
+    } else if dir_norm.dot(x_axis) < -0.999_99 {
+        Quaternion::from_angle_z(Rad(std::f32::consts::PI))
+    } else {
+        let axis = x_axis.cross(dir_norm).normalize();
+        let angle = x_axis.dot(dir_norm).acos();
+        Quaternion::from_axis_angle(axis, Rad(angle))
+    };
+
+    let transform = Mat4::from_translation(a)
+        * Mat4::from(rotation)
+        * Mat4::from_nonuniform_scale(length, radius, radius);
+
+    cpu_mesh.transform(transform).unwrap();
+    cpu_mesh
+}
+
+/// Fan-triangulate a convex polygon (vertex 0 shared by every triangle).
+fn fan_mesh(verts: &[Vec3]) -> CpuMesh {
+    let n = verts.len() as u32;
+    let indices: Vec<u32> = (1..n - 1).flat_map(|i| [0u32, i, i + 1]).collect();
+
+    let mut cpu_mesh = CpuMesh {
+        positions: Positions::F32(verts.to_vec()),
+        indices: Indices::U32(indices),
+        ..Default::default()
+    };
+    cpu_mesh.compute_normals();
+    cpu_mesh
+}```
+
+src/viewer.rs:
+```
+use anyhow::Result;
+use three_d::*;
+
+use crate::camera::OrbitCamera;
+use crate::debug::{BuildResult, DebugRenderer};
+use crate::model::Model;
+
+pub struct Viewer {
+    pub model: Model,
+
+    window: Window,
+    context: Context,
+
+    cam: OrbitCamera,
+    debug: DebugRenderer,
+    gui: GUI,
+
+    ambient: AmbientLight,
+    directional: DirectionalLight,
+
+    mesh: Gm<Mesh, PhysicalMaterial>,
+}
+
+impl Viewer {
+    pub fn new(path: &str) -> Result<Self> {
+        let window = Window::new(WindowSettings {
+            title: "STL Viewer".to_string(),
+            max_size: Some((1920, 1080)),
+            ..Default::default()
+        })?;
+
+        let context = window.gl();
+
+        let model = Model::load(path)?;
+
+        let viewport = window.viewport();
+        let cam = OrbitCamera::new(viewport, model.centre, model.radius);
+        let gui = GUI::new(&context);
+
+        let ambient = AmbientLight::new(&context, 0.3, Srgba::WHITE);
+        let directional = DirectionalLight::new(
+            &context,
+            2.0,
+            Srgba::WHITE,
+            vec3(-1.0, -2.0, -3.0),
+        );
+
+        let cpu_mesh = model.cpu_mesh();
+        let gpu_mesh = Mesh::new(&context, &cpu_mesh);
+        let mut material = PhysicalMaterial::new_opaque(
+            &context,
+            &CpuMaterial {
+                albedo: Srgba::new(180, 185, 210, 255),
+                ..Default::default()
+            },
+        );
+        material.render_states.cull = Cull::None;
+
+        let mesh = Gm::new(gpu_mesh, material);
+
+        Ok(Self {
+            model,
+            window,
+            context,
+            cam,
+            debug: DebugRenderer::new(),
+            gui,
+            ambient,
+            directional,
+            mesh,
+        })
+    }
+
+    pub fn sync_mesh(&mut self) {
+        let positions: Vec<Vec3> = self
+            .model
+            .mesh
+            .vertices
+            .iter()
+            .map(|v| vec3(v[0], v[1], v[2]))
+            .collect();
+
+        self.mesh.geometry.set_positions(&positions).unwrap();
+    }
+    
+    pub fn run(mut self) -> Result<()> {
+        self.window.render_loop(move |mut frame_input| {
+            self.cam.resize(frame_input.viewport);
+            self.cam.update(&mut frame_input.events);
+            self.cam.tighten_clip_planes(self.model.radius);
+            
+            let fps = if frame_input.elapsed_time > 0.0 {
+                1000.0 / frame_input.elapsed_time
+            } else {
+                0.0
+            };
+
+            self.gui.update(
+                &mut frame_input.events,
+                frame_input.accumulated_time,
+                frame_input.viewport,
+                frame_input.device_pixel_ratio,
+                |gui_context| build_gui(&self.model, &self.cam, gui_context, fps),
+            );
+
+            self.debug.clear();
+            self.debug.point(
+                self.model.centre,
+                self.model.radius * 0.02,
+                Srgba::new(255, 220, 0, 255),
+                true,
+            );
+            self.debug.edge(
+                self.model.centre,
+                self.model.centre + vec3(self.model.radius, 0.0, 0.0),
+                self.model.radius * 0.01,
+                Srgba::new(255, 80, 80, 200),
+                false,
+            );
+            let l = self.model.mesh.vertices.len();
+            for i in 0..1000 {
+                let i = i * l / 1000;
+                self.debug.point(Vector3::from(self.model.mesh.vertices[i].0), self.model.radius*0.005, Srgba::RED, true);
+            }
+
+            let BuildResult(occluded, overlay) = self.debug.build(&self.context);
+
+            let _ = frame_input
+                .screen()
+                .clear(ClearState::color_and_depth(0.09, 0.09, 0.12, 1.0, 1.0))
+                .render(
+                    &self.cam.camera,
+                    std::iter::once(&self.mesh as &dyn Object)
+                        .chain(occluded.iter().map(|o| o as &dyn Object)),
+                    &[&self.ambient, &self.directional],
+                )
+                .clear(ClearState::depth(1.0))
+                .render(
+                    &self.cam.camera,
+                    overlay.iter().map(|o| o as &dyn Object),
+                    &[&self.ambient, &self.directional],
+                )
+                // egui renders last, on top of the 3D scene and your
+                // existing debug overlay — it's a separate render pass
+                // that draws its own UI texture/mesh, no depth clear needed.
+                .write(|| self.gui.render());
+
+            FrameOutput::default()
+        });
+        
+        Ok(())
+    }
+}
+
+fn build_gui(model: &Model, cam: &OrbitCamera, gui_context: &egui::Context, fps: f64) {
+    egui::Window::new("Debug")
+        .default_pos(egui::pos2(10.0, 60.0))
+        .resizable(false)
+        .show(gui_context, |ui| {
+            ui.label(format!("FPS: {fps:.1}"));
+            ui.label(format!("Faces: {}", model.mesh.faces.len()));
+            ui.label(format!("Vertices: {}", model.mesh.vertices.len()));
+            ui.label(format!(
+                "Camera distance: {:.3}",
+                cam.camera.position().distance(model.centre)
+            ));
+            ui.separator();
+            ui.label("Drag: orbit   Scroll: zoom");
+        });
+
+    let painter = gui_context.debug_painter();
+
+    painter.rect_stroke(
+        egui::Rect::from_min_size(egui::pos2(50.0, 400.0), egui::vec2(220.0, 100.0)),
+        4.0,
+        egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 160, 40)),
+        egui::StrokeKind::Middle,
+    );
+
+    painter.rect_filled(
+        egui::Rect::from_min_size(egui::pos2(320.0, 400.0), egui::vec2(120.0, 60.0)),
+        4.0,
+        egui::Color32::from_rgba_unmultiplied(80, 180, 255, 160),
+    );
+
+    painter.line_segment(
+        [egui::pos2(50.0, 540.0), egui::pos2(440.0, 600.0)],
+        egui::Stroke::new(3.0, egui::Color32::from_rgb(255, 80, 80)),
+    );
+
+    painter.text(
+        egui::pos2(50.0, 380.0),
+        egui::Align2::LEFT_BOTTOM,
+        "raw painter overlay",
+        egui::FontId::monospace(14.0),
+        egui::Color32::WHITE,
+    );
+}```
+
+src/model.rs:
+```
+use three_d::InnerSpace;
+use anyhow::{Context, Result};
+use stl_io::{IndexedMesh, Vector};
+use std::{
+    fs::File,
+    io::BufReader,
+};
+
+use three_d::{
+    CpuMesh,
+    Indices,
+    Positions,
+    Vec3,
+};
+
+/// Convert STL coordinates (Z-up) into viewer coordinates (Y-up).
+#[inline]
+fn zup_to_yup(v: Vector<f32>) -> Vector<f32> {
+    Vector::new([
+        v[0],
+        v[2],
+        -v[1],
+    ])
+}
+
+pub struct Model {
+    /// This is the mesh all of your geometry algorithms should use.
+    pub mesh: IndexedMesh,
+
+    pub centre: Vec3,
+    pub radius: f32,
+}
+
+impl Model {
+    pub fn load(path: &str) -> Result<Self> {
+        let file = File::open(path)
+            .with_context(|| format!("Couldn't open STL file '{}'", path))?;
+
+        let mut mesh = stl_io::read_stl(&mut BufReader::new(file))
+            .context("Couldn't parse STL")?;
+
+        // Convert to Y-up once so the rest of the program
+        // never has to care about coordinate systems.
+        for v in &mut mesh.vertices {
+            *v = zup_to_yup(*v);
+        }
+
+        for face in &mut mesh.faces {
+            face.normal = zup_to_yup(face.normal);
+        }
+
+        let (centre, radius) = bounding_sphere(&mesh);
+
+        println!(
+            "Loaded {} faces, {} vertices",
+            mesh.faces.len(),
+            mesh.vertices.len()
+        );
+
+        Ok(Self {
+            mesh,
+            centre,
+            radius,
+        })
+    }
+
+    /// Convert our IndexedMesh into a three-d CpuMesh.
+    ///
+    /// This is only used by the renderer.
+    /// Your geometry algorithms should ignore it completely.
+    pub fn cpu_mesh(&self) -> CpuMesh {
+        let positions: Vec<Vec3> = self.mesh
+            .vertices
+            .iter()
+            .map(|v| Vec3::new(v[0], v[1], v[2]))
+            .collect();
+
+        let mut indices = Vec::<u32>::with_capacity(
+            self.mesh.faces.len() * 3
+        );
+
+        for face in &self.mesh.faces {
+            indices.push(face.vertices[0] as u32);
+            indices.push(face.vertices[1] as u32);
+            indices.push(face.vertices[2] as u32);
+        }
+
+        let mut mesh = CpuMesh {
+            positions: Positions::F32(positions),
+            indices: Indices::U32(indices),
+
+            normals: None,
+            tangents: None,
+            uvs: None,
+            colors: None,
+        };
+
+        // Compute smooth normals.
+        // Later we can replace this with flat shading if desired.
+        mesh.compute_normals();
+
+        mesh
+    }
+}
+
+/// Recompute the bounding sphere after editing vertices.
+pub fn bounding_sphere(mesh: &IndexedMesh) -> (Vec3, f32) {
+    let mut lo = Vec3::new(
+        f32::INFINITY,
+        f32::INFINITY,
+        f32::INFINITY,
+    );
+
+    let mut hi = Vec3::new(
+        f32::NEG_INFINITY,
+        f32::NEG_INFINITY,
+        f32::NEG_INFINITY,
+    );
+
+    for v in &mesh.vertices {
+        let p = Vec3::new(
+            v[0],
+            v[1],
+            v[2],
+        );
+
+        lo.x = lo.x.min(p.x);
+        lo.y = lo.y.min(p.y);
+        lo.z = lo.z.min(p.z);
+
+        hi.x = hi.x.max(p.x);
+        hi.y = hi.y.max(p.y);
+        hi.z = hi.z.max(p.z);
+    }
+
+    let centre = (lo + hi) * 0.5;
+    let radius = (hi - lo).magnitude() * 0.5;
+
+    (centre, radius)
+}```

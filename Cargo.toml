@@ -1,8 +1,9 @@
 [package]
 name = "crochet-generator"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
-macroquad = "0.4"
+three-d = { version = "0.19", features = ["egui-gui"] }
 stl_io = "0.11"
+anyhow = "1"
