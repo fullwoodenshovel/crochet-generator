@@ -1,218 +1,292 @@
 use three_d::*;
 
+const CHUNK_SIZE: usize = 1024;
+
+/* ============================================================
+   DEBUG RENDERER
+============================================================ */
+
 pub struct DebugRenderer {
-    points: PointCloud,
-    lines: LineCloud,
+    context: Context,
+
+    points_occluded: Vec<PointChunk>,
+    points_overlay: Vec<PointChunk>,
+
+    lines_occluded: Vec<LineChunk>,
+    lines_overlay: Vec<LineChunk>,
 }
 
 impl DebugRenderer {
     pub fn new(context: &Context) -> Self {
         Self {
-            points: PointCloud::new(context),
-            lines: LineCloud::new(context),
+            context: Clone::clone(context),
+            points_occluded: Vec::new(),
+            points_overlay: Vec::new(),
+            lines_occluded: Vec::new(),
+            lines_overlay: Vec::new(),
         }
     }
 
     pub fn clear(&mut self) {
-        self.points.clear();
-        self.lines.clear();
+        self.points_occluded.clear();
+        self.points_overlay.clear();
+        self.lines_occluded.clear();
+        self.lines_overlay.clear();
     }
 
-    pub fn point(&mut self, position: Vec3, radius: f32, color: Srgba, _depth_test: bool) {
-        self.points.push(position, radius, color);
+    /* ============================================================
+       POINTS
+    ============================================================ */
+
+    pub fn point(&mut self, position: Vec3, radius: f32, color: Srgba, depth: bool) {
+        let chunks = if depth {
+            &mut self.points_occluded
+        } else {
+            &mut self.points_overlay
+        };
+
+        if chunks.is_empty() || chunks.last().unwrap().instances.len() >= CHUNK_SIZE {
+            chunks.push(PointChunk::new(&self.context, depth));
+        }
+
+        let chunk = chunks.last_mut().unwrap();
+
+        chunk.instances.push(PointInstance {
+            position,
+            radius,
+            color,
+        });
+
+        chunk.dirty = true;
     }
 
-    pub fn edge(&mut self, a: Vec3, b: Vec3, thickness: f32, color: Srgba, _depth_test: bool) {
-        self.lines.push(a, b, thickness, color);
+    /* ============================================================
+       LINES
+    ============================================================ */
+
+    pub fn edge(&mut self, a: Vec3, b: Vec3, thickness: f32, color: Srgba, depth: bool) {
+        let chunks = if depth {
+            &mut self.lines_occluded
+        } else {
+            &mut self.lines_overlay
+        };
+
+        if chunks.is_empty() || chunks.last().unwrap().instances.len() >= CHUNK_SIZE {
+            chunks.push(LineChunk::new(&self.context, depth));
+        }
+
+        let chunk = chunks.last_mut().unwrap();
+
+        chunk.instances.push(LineInstance {
+            a,
+            b,
+            thickness,
+            color,
+        });
+
+        chunk.dirty = true;
     }
+
+    /* ============================================================
+       GPU UPLOAD
+    ============================================================ */
 
     pub fn upload(&mut self) {
-        self.points.upload();
-        self.lines.upload();
+        for c in &mut self.points_occluded {
+            c.upload(&self.context);
+        }
+        for c in &mut self.points_overlay {
+            c.upload(&self.context);
+        }
+        for c in &mut self.lines_occluded {
+            c.upload(&self.context);
+        }
+        for c in &mut self.lines_overlay {
+            c.upload(&self.context);
+        }
     }
 
+    /* ============================================================
+       RENDER STREAMS
+    ============================================================ */
+
     pub fn occluded(&self) -> impl Iterator<Item = &dyn Object> {
-        std::iter::once(self.points.as_object())
-            .chain(std::iter::once(self.lines.as_object()))
+        self.points_occluded
+            .iter()
+            .map(|c| &c.mesh as &dyn Object)
+            .chain(self.lines_occluded.iter().map(|c| &c.mesh as &dyn Object))
+    }
+
+    pub fn overlay(&self) -> impl Iterator<Item = &dyn Object> {
+        self.points_overlay
+            .iter()
+            .map(|c| &c.mesh as &dyn Object)
+            .chain(self.lines_overlay.iter().map(|c| &c.mesh as &dyn Object))
     }
 }
 
 /* ============================================================
-   POINT CLOUD (Instanced spheres)
+   POINTS
 ============================================================ */
 
 struct PointInstance {
-    transform: Mat4,
+    position: Vec3,
+    radius: f32,
     color: Srgba,
 }
 
-pub struct PointCloud {
+struct PointChunk {
     instances: Vec<PointInstance>,
-    dirty: bool,
     mesh: Gm<InstancedMesh, ColorMaterial>,
+    dirty: bool,
 }
 
-impl PointCloud {
-    pub fn new(context: &Context) -> Self {
+impl PointChunk {
+    fn new(context: &Context, depth: bool) -> Self {
         let cpu = CpuMesh::sphere(8);
-
-        let material = ColorMaterial {
-            color: Srgba::WHITE,
-            render_states: render_states(),
-            ..Default::default()
-        };
 
         let mesh = Gm::new(
             InstancedMesh::new(context, &Instances::default(), &cpu),
-            material,
+            ColorMaterial {
+                color: Srgba::WHITE,
+                render_states: RenderStates {
+                    depth_test: if depth {
+                        DepthTest::Less
+                    } else {
+                        DepthTest::Always
+                    },
+                    cull: Cull::None,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
         );
 
         Self {
             instances: Vec::new(),
-            dirty: false,
             mesh,
+            dirty: true,
         }
     }
 
-    pub fn push(&mut self, position: Vec3, radius: f32, color: Srgba) {
-        self.instances.push(PointInstance {
-            transform: Mat4::from_translation(position)
-                * Mat4::from_scale(radius),
-            color,
-        });
-
-        self.dirty = true;
-    }
-
-    pub fn clear(&mut self) {
-        self.instances.clear();
-        self.dirty = true;
-    }
-
-    pub fn upload(&mut self) {
+    fn upload(&mut self, _context: &Context) {
         if !self.dirty {
             return;
         }
 
+        let mut transforms = Vec::with_capacity(self.instances.len());
+        let mut colors = Vec::with_capacity(self.instances.len());
+
+        for i in &self.instances {
+            transforms.push(
+                Mat4::from_translation(i.position)
+                    * Mat4::from_scale(i.radius),
+            );
+
+            colors.push(i.color);
+        }
+
         let instances = Instances {
-            transformations: self.instances.iter().map(|i| i.transform).collect(),
-            colors: Some(self.instances.iter().map(|i| i.color).collect()),
+            transformations: transforms,
+            colors: Some(colors),
             texture_transformations: None,
         };
 
         self.mesh.geometry.set_instances(&instances);
         self.dirty = false;
     }
-
-    fn as_object(&self) -> &dyn Object {
-        &self.mesh
-    }
 }
 
 /* ============================================================
-   LINE CLOUD (Instanced cylinders)
+   LINES (FIXED + STABLE CYLINDER ORIENTATION)
 ============================================================ */
 
 struct LineInstance {
-    transform: Mat4,
+    a: Vec3,
+    b: Vec3,
+    thickness: f32,
     color: Srgba,
 }
 
-pub struct LineCloud {
+struct LineChunk {
     instances: Vec<LineInstance>,
-    dirty: bool,
     mesh: Gm<InstancedMesh, ColorMaterial>,
+    dirty: bool,
 }
 
-impl LineCloud {
-    pub fn new(context: &Context) -> Self {
+impl LineChunk {
+    fn new(context: &Context, depth: bool) -> Self {
         let cpu = CpuMesh::cylinder(8);
-
-        let material = ColorMaterial {
-            color: Srgba::WHITE,
-            render_states: render_states(),
-            ..Default::default()
-        };
 
         let mesh = Gm::new(
             InstancedMesh::new(context, &Instances::default(), &cpu),
-            material,
+            ColorMaterial {
+                color: Srgba::WHITE,
+                render_states: RenderStates {
+                    depth_test: if depth {
+                        DepthTest::Less
+                    } else {
+                        DepthTest::Always
+                    },
+                    cull: Cull::None,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
         );
 
         Self {
             instances: Vec::new(),
-            dirty: false,
             mesh,
+            dirty: true,
         }
     }
 
-    pub fn push(&mut self, a: Vec3, b: Vec3, thickness: f32, color: Srgba) {
-        let dir = b - a;
-        let len = dir.magnitude();
-
-        if len < 1e-6 {
-            return;
-        }
-
-        let dir = dir / len;
-        let x_axis = Vec3::unit_x();
-
-        let rotation = if dir.dot(x_axis) > 0.999_99 {
-            Quaternion::new(1.0, 0.0, 0.0, 0.0)
-        } else if dir.dot(x_axis) < -0.999_99 {
-            Quaternion::from_angle_z(Rad(std::f32::consts::PI))
-        } else {
-            let axis = x_axis.cross(dir).normalize();
-            let angle = x_axis.dot(dir).acos();
-            Quaternion::from_axis_angle(axis, Rad(angle))
-        };
-
-        let transform =
-            Mat4::from_translation(a)
-            * Mat4::from(rotation)
-            * Mat4::from_nonuniform_scale(len, thickness, thickness);
-
-        self.instances.push(LineInstance {
-            transform,
-            color,
-        });
-
-        self.dirty = true;
-    }
-
-    pub fn clear(&mut self) {
-        self.instances.clear();
-        self.dirty = true;
-    }
-
-    pub fn upload(&mut self) {
+    fn upload(&mut self, _context: &Context) {
         if !self.dirty {
             return;
         }
 
+        let mut transforms = Vec::with_capacity(self.instances.len());
+        let mut colors = Vec::with_capacity(self.instances.len());
+
+        for i in &self.instances {
+            let dir = i.b - i.a;
+            let len = dir.magnitude();
+
+            if len < 1e-6 {
+                continue;
+            }
+
+            let dir_norm = dir / len;
+
+            // three-d cylinder is Z-axis aligned – rotate Z to the edge direction,
+            // using the horizontal perpendicular as the fallback to keep the
+            // thickness directions horizontal (Y or X will align with horiz_perp).
+            let rotation = Quaternion::from_arc(Vec3::unit_x(), dir_norm, None);
+
+            // Scale: X and Y are the radius (thickness), Z is the length
+            let transform =
+                Mat4::from_translation(i.a)
+                * Mat4::from(rotation)
+                * Mat4::from_nonuniform_scale(
+                    len,           // X → now aligned to the edge
+                    i.thickness,   // Y
+                    i.thickness,   // Z
+                )
+                ;
+                
+            transforms.push(transform);
+            colors.push(i.color);
+        }
+
         let instances = Instances {
-            transformations: self.instances.iter().map(|i| i.transform).collect(),
-            colors: Some(self.instances.iter().map(|i| i.color).collect()),
+            transformations: transforms,
+            colors: Some(colors),
             texture_transformations: None,
         };
 
         self.mesh.geometry.set_instances(&instances);
         self.dirty = false;
-    }
-
-    fn as_object(&self) -> &dyn Object {
-        &self.mesh
-    }
-}
-
-/* ============================================================
-   helper
-============================================================ */
-
-fn render_states() -> RenderStates {
-    RenderStates {
-        depth_test: DepthTest::Less,
-        cull: Cull::None,
-        ..Default::default()
     }
 }

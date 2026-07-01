@@ -1,15 +1,35 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 use three_d::*;
-
+use tokio::sync::mpsc;
+use three_d::Material;
 use crate::camera::OrbitCamera;
 use crate::debug::DebugRenderer;
 use crate::model::Model;
 
+pub enum Command {
+    Clear,
+    Point {
+        pos: stl_io::Vector<f32>,
+        radius: f32,
+        colour: Srgba,
+        depth: bool
+    },
+    Line {
+        a: stl_io::Vector<f32>,
+        b: stl_io::Vector<f32>,
+        thickness: f32,
+        colour: Srgba,
+        depth: bool
+    }
+
+}
+
 pub struct Viewer {
-    pub model: Model,
+    pub model: Arc<Model>,
 
     window: Window,
-    context: Context,
 
     cam: OrbitCamera,
     debug: DebugRenderer,
@@ -19,11 +39,11 @@ pub struct Viewer {
     directional: DirectionalLight,
 
     mesh: Gm<Mesh, PhysicalMaterial>,
-    index: usize
+    receiver: mpsc::UnboundedReceiver<Command>
 }
 
 impl Viewer {
-    pub fn new(path: &str) -> Result<Self> {
+    pub fn new(path: &str, receiver: mpsc::UnboundedReceiver<Command>) -> Result<Self> {
         let window = Window::new(WindowSettings {
             title: "STL Viewer".to_string(),
             max_size: Some((1920, 1080)),
@@ -62,19 +82,16 @@ impl Viewer {
 
         let mesh = Gm::new(gpu_mesh, material);
 
-        let debug = DebugRenderer::new(&context);
-
         Ok(Self {
-            model,
+            model: Arc::new(model),
             window,
-            context,
+            debug: DebugRenderer::new(&context),
             cam,
-            debug,
             gui,
             ambient,
             directional,
             mesh,
-            index: 0
+            receiver,
         })
     }
 
@@ -95,50 +112,66 @@ impl Viewer {
                 frame_input.accumulated_time,
                 frame_input.viewport,
                 frame_input.device_pixel_ratio,
-                |gui_context| {
-                    build_gui(&self.model, &self.cam, gui_context, fps)
-                },
+                |gui_context| build_gui(&self.model, &self.cam, gui_context, fps),
             );
 
-            /* ================= DEBUG GEOMETRY ================= */
+            /* ================= DEBUG ================= */
 
-            if self.index == 0 {
-                self.debug.point(
-                    self.model.centre,
-                    self.model.radius * 0.02,
-                    Srgba::new(255, 220, 0, 255),
-                    true,
-                );
-    
-                self.debug.edge(
-                    self.model.centre,
-                    self.model.centre + vec3(self.model.radius, 0.0, 0.0),
-                    self.model.radius * 0.01,
-                    Srgba::new(255, 80, 80, 200),
-                    true,
-                );
-            }
-
-            if self.index < 300 {
-                let l = self.model.mesh.vertices.len();
-                for i in 0..100 {
-                    let i = i * l / 100 + self.index;
-                    let v = self.model.mesh.vertices[i].0;
-    
-                    self.debug.point(
-                        vec3(v[0], v[1], v[2]),
-                        self.model.radius * 0.005,
-                        Srgba::RED,
-                        true,
-                    );
+            while let Ok(command) = self.receiver.try_recv() {
+                match command {
+                    Command::Clear => self.debug.clear(),
+                    Command::Point { pos, radius, colour, depth } => self.debug.point(pos.0.into(), radius, colour, depth),
+                    Command::Line { a, b, thickness, colour, depth } => self.debug.edge(a.0.into(), b.0.into(), thickness, colour, depth),
                 }
-    
-                self.index += 1;
             }
+            // self.debug.clear();
 
+            // self.debug.point(
+            //     self.model.centre,
+            //     self.model.radius * 0.02,
+            //     Srgba::new(255, 220, 0, 255),
+            //     true,
+            // );
+
+            // self.debug.point(
+            //     self.model.mesh.vertices[0].0.into(),
+            //     self.model.radius * 0.02,
+            //     Srgba::new(255, 220, 0, 255),
+            //     false,
+            // );
+
+            // self.debug.point(
+            //     self.model.mesh.vertices[self.model.mesh.vertices.len() / 2].0.into(),
+            //     self.model.radius * 0.02,
+            //     Srgba::new(255, 220, 0, 255),
+            //     false,
+            // );
+
+            // self.debug.edge(
+            //     // self.model.centre,
+            //     // self.model.centre + vec3(self.model.radius, 0.0, 0.0),
+            //     self.model.mesh.vertices[0].0.into(),
+            //     self.model.mesh.vertices[self.model.mesh.vertices.len() / 2].0.into(),
+            //     self.model.radius * 0.01,
+            //     Srgba::new(255, 80, 80, 200),
+            //     true,
+            // );
+
+            // let l = self.model.mesh.vertices.len();
+            // for i in 0..1000 {
+            //     let idx = i * l / 1000;
+            //     let v = self.model.mesh.vertices[idx].0;
+
+            //     self.debug.point(
+            //         vec3(v[0], v[1], v[2]),
+            //         self.model.radius * 0.005,
+            //         Srgba::RED,
+            //         true,
+            //     );
+            // }
+
+            /* IMPORTANT: correct pipeline */
             self.debug.upload();
-
-            /* ================= RENDER ================= */
 
             let _ = frame_input
                 .screen()
@@ -149,6 +182,12 @@ impl Viewer {
                     &self.cam.camera,
                     std::iter::once(&self.mesh as &dyn Object)
                         .chain(self.debug.occluded()),
+                    &[&self.ambient, &self.directional],
+                )
+                .clear(ClearState::depth(1.0))
+                .render(
+                    &self.cam.camera,
+                    self.debug.overlay(),
                     &[&self.ambient, &self.directional],
                 )
                 .write(|| self.gui.render());
@@ -179,12 +218,11 @@ fn build_gui(
                 "Camera distance: {:.3}",
                 cam.camera.position().distance(model.centre)
             ));
-            ui.separator();
-            ui.label("Drag: orbit   Scroll: zoom");
         });
 
     let painter = gui_context.debug_painter();
 
+    // RECTANGLE (same as before)
     painter.rect_stroke(
         egui::Rect::from_min_size(
             egui::pos2(50.0, 400.0),
@@ -204,14 +242,13 @@ fn build_gui(
         egui::Color32::from_rgba_unmultiplied(80, 180, 255, 160),
     );
 
+    // LINE
     painter.line_segment(
-        [
-            egui::pos2(50.0, 540.0),
-            egui::pos2(440.0, 600.0),
-        ],
+        [egui::pos2(50.0, 540.0), egui::pos2(440.0, 600.0)],
         egui::Stroke::new(3.0, egui::Color32::from_rgb(255, 80, 80)),
     );
 
+    // TEXT
     painter.text(
         egui::pos2(50.0, 380.0),
         egui::Align2::LEFT_BOTTOM,
