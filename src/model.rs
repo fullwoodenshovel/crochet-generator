@@ -11,24 +11,21 @@ use three_d::{
     Indices,
     Positions,
     Vec3,
+    Srgba,
 };
 
-/// Convert STL coordinates (Z-up) into viewer coordinates (Y-up).
 #[inline]
 fn zup_to_yup(v: Vector<f32>) -> Vector<f32> {
-    Vector::new([
-        v[0],
-        v[2],
-        -v[1],
-    ])
+    Vector::new([v[0], v[2], -v[1]])
 }
 
 pub struct Model {
-    /// This is the mesh all of your geometry algorithms should use.
     pub mesh: IndexedMesh,
-
     pub centre: Vec3,
     pub radius: f32,
+
+    // NEW: baked render mesh
+    pub baked_mesh: CpuMesh,
 }
 
 impl Model {
@@ -39,8 +36,6 @@ impl Model {
         let mut mesh = stl_io::read_stl(&mut BufReader::new(file))
             .context("Couldn't parse STL")?;
 
-        // Convert to Y-up once so the rest of the program
-        // never has to care about coordinate systems.
         for v in &mut mesh.vertices {
             *v = zup_to_yup(*v);
         }
@@ -57,49 +52,78 @@ impl Model {
             mesh.vertices.len()
         );
 
+        let baked_mesh = bake_flat_shaded_mesh(&mesh);
+
         Ok(Self {
             mesh,
             centre,
             radius,
+            baked_mesh,
         })
     }
 
-    /// Convert our IndexedMesh into a three-d CpuMesh.
-    ///
-    /// This is only used by the renderer.
-    /// Your geometry algorithms should ignore it completely.
     pub fn cpu_mesh(&self) -> CpuMesh {
-        let positions: Vec<Vec3> = self.mesh
-            .vertices
-            .iter()
-            .map(|v| Vec3::new(v[0], v[1], v[2]))
-            .collect();
+        self.baked_mesh.clone()
+    }
+}
 
-        let mut indices = Vec::<u32>::with_capacity(
-            self.mesh.faces.len() * 3
-        );
+/* ============================================================
+   FLAT SHADING + BAKING
+============================================================ */
 
-        for face in &self.mesh.faces {
-            indices.push(face.vertices[0] as u32);
-            indices.push(face.vertices[1] as u32);
-            indices.push(face.vertices[2] as u32);
-        }
+pub const LIGHT_DIR: Vec3 = Vec3::new(1.0 * 0.26726124, 3.0 * 0.26726124, 2.0 * 0.26726124);
 
-        let mut mesh = CpuMesh {
-            positions: Positions::F32(positions),
-            indices: Indices::U32(indices),
+fn bake_flat_shaded_mesh(mesh: &IndexedMesh) -> CpuMesh {
+    let mut positions = Vec::new();
+    let mut indices = Vec::new();
+    let mut colors = Vec::new();
 
-            normals: None,
-            tangents: None,
-            uvs: None,
-            colors: None,
-        };
+    for face in &mesh.faces {
+        let ia = face.vertices[0];
+        let ib = face.vertices[1];
+        let ic = face.vertices[2];
 
-        // Compute smooth normals.
-        // Later we can replace this with flat shading if desired.
-        mesh.compute_normals();
+        let a = mesh.vertices[ia];
+        let b = mesh.vertices[ib];
+        let c = mesh.vertices[ic];
 
-        mesh
+        let pa = Vec3::new(a[0], a[1], a[2]);
+        let pb = Vec3::new(b[0], b[1], b[2]);
+        let pc = Vec3::new(c[0], c[1], c[2]);
+
+        // face normal (flat shading)
+        let n = (pb - pa).cross(pc - pa).normalize();
+
+        // YOUR lighting formula:
+        let brightness = (n.dot(LIGHT_DIR) * 0.45 + 0.55)
+            .sqrt()
+            .clamp(0.0, 1.0);
+
+        let shade = (brightness * 255.0) as u8;
+        let color = Srgba::new(shade, shade, shade, 255);
+
+        let base = positions.len() as u32;
+
+        positions.push(pa);
+        positions.push(pb);
+        positions.push(pc);
+
+        colors.push(color);
+        colors.push(color);
+        colors.push(color);
+
+        indices.push(base);
+        indices.push(base + 1);
+        indices.push(base + 2);
+    }
+
+    CpuMesh {
+        positions: Positions::F32(positions),
+        indices: Indices::U32(indices),
+        normals: None,
+        tangents: None,
+        uvs: None,
+        colors: Some(colors),
     }
 }
 

@@ -1,5 +1,7 @@
 use three_d::*;
 
+use crate::model::LIGHT_DIR;
+
 const CHUNK_SIZE: usize = 1024;
 
 /* ============================================================
@@ -14,6 +16,9 @@ pub struct DebugRenderer {
 
     lines_occluded: Vec<LineChunk>,
     lines_overlay: Vec<LineChunk>,
+
+    faces_occluded: Vec<FaceChunk>,
+    faces_overlay: Vec<FaceChunk>,
 }
 
 impl DebugRenderer {
@@ -24,6 +29,8 @@ impl DebugRenderer {
             points_overlay: Vec::new(),
             lines_occluded: Vec::new(),
             lines_overlay: Vec::new(),
+            faces_occluded: Vec::new(),
+            faces_overlay: Vec::new(),
         }
     }
 
@@ -87,6 +94,23 @@ impl DebugRenderer {
         chunk.dirty = true;
     }
 
+    pub fn face(&mut self, a: Vec3, b: Vec3, c: Vec3, color: Srgba, depth: bool) {
+        let chunks = if depth {
+            &mut self.faces_occluded
+        } else {
+            &mut self.faces_overlay
+        };
+
+        if chunks.is_empty() || chunks.last().unwrap().instances.len() >= CHUNK_SIZE {
+            chunks.push(FaceChunk::new(&self.context, depth));
+        }
+
+        let chunk = chunks.last_mut().unwrap();
+
+        chunk.instances.push(FaceInstance { a, b, c, color });
+        chunk.dirty = true;
+    }
+
     /* ============================================================
        GPU UPLOAD
     ============================================================ */
@@ -104,6 +128,12 @@ impl DebugRenderer {
         for c in &mut self.lines_overlay {
             c.upload(&self.context);
         }
+        for c in &mut self.faces_occluded {
+            c.upload(&self.context);
+        }
+        for c in &mut self.faces_overlay {
+            c.upload(&self.context);
+        }
     }
 
     /* ============================================================
@@ -115,6 +145,7 @@ impl DebugRenderer {
             .iter()
             .map(|c| &c.mesh as &dyn Object)
             .chain(self.lines_occluded.iter().map(|c| &c.mesh as &dyn Object))
+            .chain(self.faces_occluded.iter().map(|c| &c.mesh as &dyn Object))
     }
 
     pub fn overlay(&self) -> impl Iterator<Item = &dyn Object> {
@@ -122,6 +153,7 @@ impl DebugRenderer {
             .iter()
             .map(|c| &c.mesh as &dyn Object)
             .chain(self.lines_overlay.iter().map(|c| &c.mesh as &dyn Object))
+            .chain(self.faces_overlay.iter().map(|c| &c.mesh as &dyn Object))
     }
 }
 
@@ -287,6 +319,120 @@ impl LineChunk {
         };
 
         self.mesh.geometry.set_instances(&instances);
+        self.dirty = false;
+    }
+}
+
+struct FaceInstance {
+    a: Vec3,
+    b: Vec3,
+    c: Vec3,
+    color: Srgba,
+}
+
+struct FaceChunk {
+    instances: Vec<FaceInstance>,
+    mesh: Gm<InstancedMesh, ColorMaterial>,
+    dirty: bool,
+}
+
+impl FaceChunk {
+    fn new(context: &Context, depth: bool) -> Self {
+        let cpu = CpuMesh {
+            positions: Positions::F32(vec![
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(1.0, 0.0, 0.0),
+                Vec3::new(0.0, 1.0, 0.0),
+            ]),
+            indices: Indices::U32(vec![0, 1, 2]),
+            normals: None,
+            tangents: None,
+            uvs: None,
+            colors: None,
+        };
+
+        let mesh = Gm::new(
+            InstancedMesh::new(context, &Instances::default(), &cpu),
+            ColorMaterial {
+                color: Srgba::WHITE,
+                render_states: RenderStates {
+                    depth_test: if depth {
+                        DepthTest::LessOrEqual
+                    } else {
+                        DepthTest::Always
+                    },
+                    cull: Cull::None,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+
+        Self {
+            instances: Vec::new(),
+            mesh,
+            dirty: true,
+        }
+    }
+
+    fn upload(&mut self, _context: &Context) {
+        if !self.dirty {
+            return;
+        }
+
+        let mut transforms = Vec::new();
+        let mut colors = Vec::new();
+
+        for i in &self.instances {
+            let a = i.a;
+            let b = i.b;
+            let c = i.c;
+
+            let ab = b - a;
+            let ac = c - a;
+
+            let normal = ab.cross(ac);
+            let n_len = normal.magnitude();
+
+            if n_len < 1e-8 {
+                continue;
+            }
+
+            let n = normal / n_len;
+
+            // -------------------------
+            // LIGHTING (per instance)
+            // -------------------------
+            let brightness = (n.dot(LIGHT_DIR) * 0.45 + 0.55)
+                .sqrt()
+                .clamp(0.0, 1.0);
+
+            let shade = (brightness * 255.0) as u8;
+
+            let final_color = Srgba::new(
+                (i.color.r as u16 * shade as u16 / 255) as u8,
+                (i.color.g as u16 * shade as u16 / 255) as u8,
+                (i.color.b as u16 * shade as u16 / 255) as u8,
+                i.color.a,
+            );
+
+            // -------------------------
+            // TRANSFORM
+            // -------------------------
+            let transform =
+                Mat4::from_translation(a)
+                * Mat4::from(Mat3::from_cols(ab, ac, Vec3::unit_z()));
+
+            transforms.push(transform);
+            colors.push(final_color);
+        }
+
+        self.mesh.geometry.set_instances(&Instances {
+            transformations: transforms,
+            colors: Some(colors),
+            texture_transformations: None,
+        });
+
         self.dirty = false;
     }
 }

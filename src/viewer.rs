@@ -3,23 +3,31 @@ use std::sync::Arc;
 use anyhow::Result;
 use three_d::*;
 use tokio::sync::mpsc;
-use three_d::Material;
 use crate::camera::OrbitCamera;
 use crate::debug::DebugRenderer;
-use crate::model::Model;
+use crate::model::{LIGHT_DIR, Model};
+
+type V3 = stl_io::Vector<f32>;
 
 pub enum Command {
     Clear,
     Point {
-        pos: stl_io::Vector<f32>,
+        pos: V3,
         radius: f32,
         colour: Srgba,
         depth: bool
     },
     Line {
-        a: stl_io::Vector<f32>,
-        b: stl_io::Vector<f32>,
+        a: V3,
+        b: V3,
         thickness: f32,
+        colour: Srgba,
+        depth: bool
+    },
+    Face {
+        a: V3,
+        b: V3,
+        c: V3,
         colour: Srgba,
         depth: bool
     }
@@ -64,7 +72,7 @@ impl Viewer {
             &context,
             2.0,
             Srgba::WHITE,
-            vec3(-1.0, -2.0, -3.0),
+            -LIGHT_DIR,
         );
 
         let cpu_mesh = model.cpu_mesh();
@@ -122,6 +130,7 @@ impl Viewer {
                     Command::Clear => self.debug.clear(),
                     Command::Point { pos, radius, colour, depth } => self.debug.point(pos.0.into(), radius, colour, depth),
                     Command::Line { a, b, thickness, colour, depth } => self.debug.edge(a.0.into(), b.0.into(), thickness, colour, depth),
+                    Command::Face { a, b, c, colour, depth } => self.debug.face(a.0.into(), b.0.into(), c.0.into(), colour, depth),
                 }
             }
             // self.debug.clear();
