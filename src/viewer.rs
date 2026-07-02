@@ -1,37 +1,45 @@
+// This file was partially made by AI
+
 use std::sync::Arc;
 
 use anyhow::Result;
 use three_d::*;
 use tokio::sync::mpsc;
+use crate::app::ProcessorCommand;
 use crate::camera::OrbitCamera;
 use crate::debug::DebugRenderer;
 use crate::model::{LIGHT_DIR, Model};
 
 type V3 = stl_io::Vector<f32>;
 
-pub enum Command {
+pub enum DisplayCommand {
     Clear,
     Point {
         pos: V3,
         radius: f32,
         colour: Srgba,
-        depth: bool
+        depth: bool,
+        temp: bool
     },
-    Line {
+    Edge {
         a: V3,
         b: V3,
         thickness: f32,
         colour: Srgba,
-        depth: bool
+        depth: bool,
+        temp: bool
     },
     Face {
         a: V3,
         b: V3,
         c: V3,
         colour: Srgba,
-        depth: bool
-    }
-
+        depth: bool,
+        temp: bool
+    },
+    ClearTempPoints,
+    ClearTempEdges,
+    ClearTempFaces,
 }
 
 pub struct Viewer {
@@ -47,11 +55,12 @@ pub struct Viewer {
     directional: DirectionalLight,
 
     mesh: Gm<Mesh, PhysicalMaterial>,
-    receiver: mpsc::UnboundedReceiver<Command>
+    sender: mpsc::UnboundedSender<ProcessorCommand>,
+    receiver: mpsc::UnboundedReceiver<DisplayCommand>
 }
 
 impl Viewer {
-    pub fn new(path: &str, receiver: mpsc::UnboundedReceiver<Command>) -> Result<Self> {
+    pub fn new(path: &str, receiver: mpsc::UnboundedReceiver<DisplayCommand>, sender: mpsc::UnboundedSender<ProcessorCommand>) -> Result<Self> {
         let window = Window::new(WindowSettings {
             title: "STL Viewer".to_string(),
             max_size: Some((1920, 1080)),
@@ -99,11 +108,12 @@ impl Viewer {
             ambient,
             directional,
             mesh,
+            sender,
             receiver,
         })
     }
 
-    pub fn run(mut self) -> Result<()> {
+    pub fn run(mut self) {
         self.window.render_loop(move |mut frame_input| {
             self.cam.resize(frame_input.viewport);
             self.cam.update(&mut frame_input.events);
@@ -127,60 +137,48 @@ impl Viewer {
 
             while let Ok(command) = self.receiver.try_recv() {
                 match command {
-                    Command::Clear => self.debug.clear(),
-                    Command::Point { pos, radius, colour, depth } => self.debug.point(pos.0.into(), radius, colour, depth),
-                    Command::Line { a, b, thickness, colour, depth } => self.debug.edge(a.0.into(), b.0.into(), thickness, colour, depth),
-                    Command::Face { a, b, c, colour, depth } => self.debug.face(a.0.into(), b.0.into(), c.0.into(), colour, depth),
+                    DisplayCommand::Clear => self.debug.clear(),
+                    DisplayCommand::Point { pos, radius, colour, depth, temp } => if temp {
+                        self.debug.temp_point(pos.0.into(), radius, colour, depth)
+                    } else {
+                        self.debug.point(pos.0.into(), radius, colour, depth)
+                    },
+                    DisplayCommand::Edge { a, b, thickness, colour, depth, temp } => if temp {
+                        self.debug.temp_edge(a.0.into(), b.0.into(), thickness, colour, depth)
+                    } else {
+                        self.debug.edge(a.0.into(), b.0.into(), thickness, colour, depth)
+                    },
+                    DisplayCommand::Face { a, b, c, colour, depth, temp } => if temp {
+                        self.debug.temp_face(a.0.into(), b.0.into(), c.0.into(), colour, depth)
+                    } else {
+                        self.debug.face(a.0.into(), b.0.into(), c.0.into(), colour, depth)
+                    },
+                    DisplayCommand::ClearTempPoints => self.debug.clear_temp_points(),
+                    DisplayCommand::ClearTempEdges => self.debug.clear_temp_edges(),
+                    DisplayCommand::ClearTempFaces => self.debug.clear_temp_faces(),
                 }
             }
-            // self.debug.clear();
-
-            // self.debug.point(
-            //     self.model.centre,
-            //     self.model.radius * 0.02,
-            //     Srgba::new(255, 220, 0, 255),
-            //     true,
-            // );
-
-            // self.debug.point(
-            //     self.model.mesh.vertices[0].0.into(),
-            //     self.model.radius * 0.02,
-            //     Srgba::new(255, 220, 0, 255),
-            //     false,
-            // );
-
-            // self.debug.point(
-            //     self.model.mesh.vertices[self.model.mesh.vertices.len() / 2].0.into(),
-            //     self.model.radius * 0.02,
-            //     Srgba::new(255, 220, 0, 255),
-            //     false,
-            // );
-
-            // self.debug.edge(
-            //     // self.model.centre,
-            //     // self.model.centre + vec3(self.model.radius, 0.0, 0.0),
-            //     self.model.mesh.vertices[0].0.into(),
-            //     self.model.mesh.vertices[self.model.mesh.vertices.len() / 2].0.into(),
-            //     self.model.radius * 0.01,
-            //     Srgba::new(255, 80, 80, 200),
-            //     true,
-            // );
-
-            // let l = self.model.mesh.vertices.len();
-            // for i in 0..1000 {
-            //     let idx = i * l / 1000;
-            //     let v = self.model.mesh.vertices[idx].0;
-
-            //     self.debug.point(
-            //         vec3(v[0], v[1], v[2]),
-            //         self.model.radius * 0.005,
-            //         Srgba::RED,
-            //         true,
-            //     );
-            // }
 
             /* IMPORTANT: correct pipeline */
             self.debug.upload();
+
+            for event in &frame_input.events {
+                if let Event::MousePress {
+                    button: MouseButton::Left,
+                    position,
+                    handled: false,
+                    ..
+                } = event
+                {
+                    let dir = self.cam.camera.view_direction_at_pixel(*position);
+                    let origin = self.cam.camera.position_at_pixel(*position);
+
+                    if let Some((face, hit)) = pick_triangle(&self.model, origin, dir) {
+
+                        self.sender.send(ProcessorCommand::MouseDownOnPoint { face_index: face, position: V3::new(Into::<[f32; 3]>::into(hit)) }).unwrap();
+                    }
+                }
+            }
 
             let _ = frame_input
                 .screen()
@@ -202,9 +200,8 @@ impl Viewer {
                 .write(|| self.gui.render());
 
             FrameOutput::default()
+            
         });
-
-        Ok(())
     }
 }
 
@@ -265,4 +262,72 @@ fn build_gui(
         egui::FontId::monospace(14.0),
         egui::Color32::WHITE,
     );
+}
+
+fn pick_triangle(
+    model: &Model,
+    ray_origin: Vec3,
+    ray_dir: Vec3,
+) -> Option<(usize, Vec3)> {
+    let mut closest_t = f32::INFINITY;
+    let mut closest = None;
+
+    for (face_index, face) in model.mesh.faces.iter().enumerate() {
+        let a: Vec3 = model.mesh.vertices[face.vertices[0]].0.into();
+        let b: Vec3 = model.mesh.vertices[face.vertices[1]].0.into();
+        let c: Vec3 = model.mesh.vertices[face.vertices[2]].0.into();
+
+        if let Some(t) = ray_triangle(ray_origin, ray_dir, a, b, c) {
+            if t < closest_t {
+                closest_t = t;
+                closest = Some((face_index, ray_origin + ray_dir * t));
+            }
+        }
+    }
+
+    closest
+}
+
+fn ray_triangle(
+    origin: Vec3,
+    direction: Vec3,
+    a: Vec3,
+    b: Vec3,
+    c: Vec3,
+) -> Option<f32> {
+    const EPS: f32 = 1e-6;
+
+    let edge1 = b - a;
+    let edge2 = c - a;
+
+    let h = direction.cross(edge2);
+    let det = edge1.dot(h);
+
+    if det.abs() < EPS {
+        return None;
+    }
+
+    let inv_det = 1.0 / det;
+
+    let s = origin - a;
+    let u = inv_det * s.dot(h);
+
+    if !(0.0..=1.0).contains(&u) {
+        return None;
+    }
+
+    let q = s.cross(edge1);
+    let v = inv_det * direction.dot(q);
+
+    if v < 0.0 || u + v > 1.0 {
+        return None;
+    }
+
+    let t = inv_det * edge2.dot(q);
+
+    if t > EPS {
+        Some(t)
+    } else {
+        None
+    }
 }
