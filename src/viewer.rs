@@ -5,7 +5,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use three_d::*;
 use tokio::sync::mpsc;
-use crate::app::ProcessorCommand;
+use crate::process::ProcessorCommand;
 use crate::camera::OrbitCamera;
 use crate::debug::DebugRenderer;
 use crate::model::{LIGHT_DIR, Model};

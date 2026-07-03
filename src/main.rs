@@ -4,7 +4,7 @@ mod camera;
 mod debug;
 mod model;
 mod viewer;
-mod app;
+mod process;
 
 use std::sync::Arc;
 
@@ -20,7 +20,7 @@ async fn main() {
     let (display_sender, display_receiver) = mpsc::unbounded_channel();
     let (process_sender, process_receiver) = mpsc::unbounded_channel();
     let viewer = Viewer::new(&path, display_receiver, process_sender).unwrap();
-    tokio::spawn(app::main(Arc::clone(&viewer.model), display_sender, process_receiver));
+    tokio::spawn(process::main(Arc::clone(&viewer.model), display_sender, process_receiver));
 
     viewer.run()
 }
