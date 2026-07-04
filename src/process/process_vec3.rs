@@ -71,6 +71,10 @@ impl MulAssign<f32> for PVec3 {
 }
 
 impl PVec3 {
+    pub fn splat(value: f32) -> Self {
+        Self { vec: [value; 3] }
+    }
+
     pub fn magnitude(self) -> f32 {
         self.magnitude_squared().sqrt()
     }
@@ -128,7 +132,7 @@ impl Ord for PVec3 {
 
 impl PartialOrd for PVec3 {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(&other))
+        Some(self.cmp(other))
     }
 }
 
