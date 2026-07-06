@@ -175,7 +175,7 @@ impl Viewer {
 
                     if let Some((face, hit)) = pick_triangle(&self.model, origin, dir) {
 
-                        self.sender.send(ProcessorCommand::MouseDownOnPoint { face_index: face, position: V3::new(Into::<[f32; 3]>::into(hit)) }).unwrap();
+                        self.sender.send(ProcessorCommand::MouseDownOnPoint { face_index: face, position: V3::new(Into::<[f32; 3]>::into(hit)) }).unwrap_or_default();
                     }
                 }
             }
