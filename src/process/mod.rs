@@ -68,14 +68,17 @@ impl Processor {
                 vertex_to_faces[vertex].push(i)
             }
         }
+        vertex_to_faces.shrink_to_fit();
         Self { sender, receiver, model, vertex_to_faces }
     }
 
     async fn run(&mut self) {
+        const STITCH_SIZE_EPSILON_MULTIPLIER: f32 = 0.25;
+
         let ProcessorCommand::MouseDownOnPoint { face_index, position } = self.receiver.recv().await.unwrap();
         self.sender.send(DisplayCommand::Point { pos: position, radius: self.model.radius * 0.02, colour: Srgba::BLUE, depth: true, temp: false }).unwrap();
-        let stitch_size = self.model.radius / 5.0;
-        let nodes = self.dijkstras(stitch_size / 2.0, position.into(), face_index);
+        let stitch_size = self.model.radius / 3.0;
+        let nodes = self.dijkstras(stitch_size * STITCH_SIZE_EPSILON_MULTIPLIER, position.into(), face_index);
         let furthest_len = nodes.last().unwrap().0;
         let len = nodes.len();
         println!("Diameter: {}; furthest_len: {furthest_len:?}", self.model.radius * 2.0);
@@ -85,13 +88,13 @@ impl Processor {
                 DisplayCommand::Point {
                     pos: node.pos.into(),
                     radius: self.model.radius * 0.007,
-                    colour: Hsva::new(3.0 * geo_len.0 / furthest_len.0, 1.0, 1.0, 1.0).to_srgb().into(),
+                    colour: hsv(3.0 * geo_len.0 / furthest_len.0, 1.0, 1.0),
                     depth: true,
-                    temp: false
+                    temp: true
             }).unwrap()
         }
 
-        let isolines = self.isolines(nodes, stitch_size, stitch_size / 2.0).await;
+        let isolines = self.isolines(nodes, stitch_size, stitch_size * STITCH_SIZE_EPSILON_MULTIPLIER);
     }
 
     fn get_connected_faces(&self, v1: usize, v2: usize) -> Vec<usize> {
@@ -120,4 +123,8 @@ fn remove_duplicates<T: PartialEq>(vec: Vec<T>) -> Vec<T> {
         }
     }
     new
+}
+
+fn hsv(h: f32, s: f32, v: f32) -> Srgba {
+    Hsva::new(h, s, v, 1.0).to_srgb().into()
 }
