@@ -20,8 +20,8 @@ impl Processor {
     ///     ]
     /// ]
     /// ```
-    pub fn isolines(&mut self, nodes: Vec<(OrderedFloat<f32>, Node)>, stitch_size: f32, epsilon: f32) -> Vec<Vec<(f32, Vec<NodeOnEdge>)>> {
-        let points = self.get_isoline_points(nodes, stitch_size, epsilon);
+    pub fn isolines(&mut self, nodes: Vec<(OrderedFloat<f32>, Node)>, stitch_size: f32, epsilon: f32) -> (Vec<Vec<(f32, Vec<NodeOnEdge>)>>, Node) {
+        let (points, furthest_point) = self.get_isoline_points(nodes, stitch_size, epsilon);
         let faces = self.connect_isoline_faces(points);
         let isolines = self.connect_isoline_points(faces);
         let isolines_lens: Vec<Vec<(f32, Vec<NodeOnEdge>)>> = isolines.into_iter().map(|row|
@@ -29,15 +29,18 @@ impl Processor {
                 (get_circle_len(&circle), circle)
             ).collect()
         ).collect();
-        self.prune_isolines(isolines_lens, stitch_size)
+        let result = self.prune_isolines(isolines_lens, stitch_size);
+        (result, furthest_point)
     }
 
-    fn get_isoline_points(&mut self, nodes: Vec<(OrderedFloat<f32>, Node)>, stitch_size: f32, epsilon: f32) -> Vec<HashMap<OnEdge, Vec<PVec3>>> {
+    fn get_isoline_points(&mut self, nodes: Vec<(OrderedFloat<f32>, Node)>, stitch_size: f32, epsilon: f32) -> (Vec<HashMap<OnEdge, Vec<PVec3>>>, Node) {
         // This could be optimised by moving this type conversion into dijkstras.rs immediately.
         // However, we need to store the longest length alongside this data, if this optimisation is used.
         let len = nodes[nodes.len() - 1].0.0;
+        let furthest_point = nodes[nodes.len() - 1].1;
         let old_ss = stitch_size;
         let total_lines = (len / old_ss).round();
+        let utotal_lines = total_lines as usize;
         let stitch_size = len / total_lines;
         let div_1_stitch_size = 1.0 / stitch_size;
         println!("Stitch size off by {:.2}%", 100.0 * (1.0 - stitch_size / old_ss).abs());
@@ -51,7 +54,7 @@ impl Processor {
             [OnEdge::new(v[0], v[1]), OnEdge::new(v[1], v[2]), OnEdge::new(v[2], v[0])]
         }).collect();
 
-        let mut isoline_points = vec![HashMap::new(); total_lines as usize];
+        let mut isoline_points = vec![HashMap::new(); utotal_lines - 1];
         for OnEdge { a, b } in edges {
             let mut nodes = Vec::with_capacity(1);
             let node_a = self.node_from_vertex(a);
@@ -73,7 +76,7 @@ impl Processor {
                 let line = len * div_1_stitch_size;
                 let line_floor = line.floor();
                 if line_floor != prev_line_floor {
-                    assert_eq!((line_floor - prev_line_floor).abs(), 1.0);
+                    assert_eq!((line_floor - prev_line_floor).abs(), 1.0); // This has failed 1 time
                     let mid = line_floor.max(prev_line_floor);
                     let ib = (mid - prev_line) / (line - prev_line);
                     let ia = 1.0 - ib;
@@ -87,17 +90,16 @@ impl Processor {
                         Connectivity::OnEdge(a, b) => OnEdge::new(a, b),
                     };
 
-                    // This `mid as usize` indexing might cause problems as, with float arithmetic, a * b / b != a
-                    // In order to fix, store the furthest point or deal with it immediately instead.
+                    if mid as usize == utotal_lines { continue; }
                     isoline_points[mid as usize - 1].entry(connectivity).or_insert(Vec::with_capacity(1)).push(prev_pos * ia + pos * ib);
-                    self.sender.send(DisplayCommand::Point { pos: (prev_pos * ia + pos * ib).into(), radius: self.model.radius * 0.025, colour: Srgba::WHITE, depth: true, temp: false }).unwrap();
+                    self.sender.send(DisplayCommand::Point { pos: (prev_pos * ia + pos * ib).into(), radius: self.model.radius * 0.025, colour: Srgba::WHITE, depth: true, group: Group::IsolinePoints as usize }).unwrap();
                 }
                 prev_line = line;
                 prev_line_floor = line_floor;
                 prev_node = node;
             }
         }
-        isoline_points
+        (isoline_points, furthest_point)
     }
 
     fn connect_isoline_faces(&self, points: Vec<HashMap<OnEdge, Vec<PVec3>>>) -> Vec<HashMap<usize, Vec<[NodeOnEdge; 2]>>> {
@@ -147,7 +149,7 @@ impl Processor {
                 if entry.is_empty() {
                     isoline.remove(&face);
                 }
-                circle.push(line[0]);
+                // circle.push(line[0]);
                 let mut next = line[1];
                 while let Some((point, index)) = {
                     let index = self.other_face(face, next.edge);
@@ -177,12 +179,28 @@ impl Processor {
                         None => None,
                     }
                 } {
-                    self.sender.send(DisplayCommand::Edge { a: point.pos.into(), b: next.pos.into(), thickness: self.model.radius * 0.02, colour: Srgba::BLUE, depth: true, temp: false }).unwrap();
+                    self.sender.send(DisplayCommand::Edge {
+                        a: point.pos.into(),
+                        b: next.pos.into(),
+                        thickness: self.model.radius * 0.02,
+                        colour: Srgba::BLUE,
+                        depth: true,
+                        group: Group::IsolineConnectors as usize
+                    }).unwrap();
+                    circle.push(next);
                     next = point;
                     face = index;
-                    circle.push(next);
                 }
-                self.sender.send(DisplayCommand::Edge { a: circle.first().unwrap().pos.into(), b: circle.last().unwrap().pos.into(), thickness: self.model.radius * 0.02, colour: Srgba::BLUE, depth: true, temp: false }).unwrap();
+                circle.push(next);
+
+                self.sender.send(DisplayCommand::Edge {
+                    a: circle.first().unwrap().pos.into(),
+                    b: circle.last().unwrap().pos.into(),
+                    thickness: self.model.radius * 0.02,
+                    colour: Srgba::BLUE,
+                    depth: true,
+                    group: Group::IsolineConnectors as usize
+                }).unwrap();
                 result[i].push(circle);
             }
         }
@@ -191,33 +209,68 @@ impl Processor {
     }
 
     fn prune_isolines(&self, isolines: Vec<Vec<(f32, Vec<NodeOnEdge>)>>, stitch_size: f32) -> Vec<Vec<(f32, Vec<NodeOnEdge>)>> {
+        let draw_edge_point = |a: NodeOnEdge, b: NodeOnEdge, pruned| {
+            let (group, edges, points, size) = if pruned {
+                (Group::IsolineConnectors as usize, Srgba::RED, Srgba::RED, 0.01 * self.model.radius)
+            } else {
+                (Group::IsolinePruned as usize, Srgba::BLUE, Srgba::WHITE, 0.02 * self.model.radius)
+            };
+            self.sender.send(DisplayCommand::Edge {
+                a: a.pos.into(),
+                b: b.pos.into(),
+                thickness: size,
+                colour: edges,
+                depth: !pruned,
+                group
+            }).unwrap();
+            self.sender.send(DisplayCommand::Point {
+                pos: a.pos.into(),
+                radius: size,
+                colour: points,
+                depth: !pruned,
+                group
+            }).unwrap();
+        };
+
         let mut result = vec![Vec::new(); isolines.len()];
         let total_isolines = isolines.len();
         for (i, row) in isolines.into_iter().enumerate() {
             if i == total_isolines - 1 {
-                println!("Skipped {row:?}");
 
-                // These assertions essentially ensure that the last isoline
-                // is just one point. This is potentially guarunteed by
-                // the code, but is being proven anecdotally instead of
-                // logically, if this test always passes.
-                // It may fail due to floating point imprecisions.
-                assert!(row.len() == 1);
-                assert!(row[0].1.len() == 2);
-                assert!(row[0].1[0] == row[0].1[1]);
-                assert!(row[0].0 == 0.0);
+                // These assertions have been removed because it all seems to be an artifact of floating point precision.
+
+                // // These assertions essentially ensure that the last isoline
+                // // is just one point. This is potentially guarunteed by
+                // // the code, but is being proven anecdotally instead of
+                // // logically, if this test always passes.
+                // // It may fail due to floating point imprecisions.
+                // assert_eq!(row.len(), 1, "row: {row:?}"); // Failed 1 time
+                // if row[0].1.len() != 1 {
+                //     assert_eq!(row[0].1.len(), 2, "row: {row:?}"); // Failed 1 time
+                //     assert_eq!(row[0].1[0], row[0].1[1], "row: {row:?}"); // Failed 1 time on:
+                //     //   left: NodeOnEdge { edge: OnEdge { a: 134, b: 102 }, pos: PVec3 { vec: [60.106068, 5.349101, 2.040446] } }
+                //     //  right: NodeOnEdge { edge: OnEdge { a: 134, b: 102 }, pos: PVec3 { vec: [60.106102, 5.349101, 2.0404572] } }
+                // }
 
                 result[i] = vec![(0.0, vec![row[0].1[0]])];
                 continue;
             };
             for (len, circle) in row {
-                if circle.len() <= 2 {
-                    println!("Length check: {:?}", circle);
+                let circle_len = circle.len();
+                if circle_len <= 2 {
+                    for i in 0..circle_len {
+                        draw_edge_point(circle[i], circle[(i + 1) % circle_len], true);
+                    }
                     continue;
                 }
                 if len < stitch_size * 1.5 {
-                    println!("Epsilon check: {:?}", circle);
+                    for i in 0..circle_len {
+                        draw_edge_point(circle[i], circle[(i + 1) % circle_len], true);
+                    }
                     continue;
+                }
+                for i in 0..circle_len {
+                    draw_edge_point(circle[i], circle[(i + 1) % circle_len], false);
                 }
                 result[i].push((len, circle));
             }

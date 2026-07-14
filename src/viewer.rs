@@ -19,7 +19,7 @@ pub enum DisplayCommand {
         radius: f32,
         colour: Srgba,
         depth: bool,
-        temp: bool
+        group: usize
     },
     Edge {
         a: V3,
@@ -27,7 +27,7 @@ pub enum DisplayCommand {
         thickness: f32,
         colour: Srgba,
         depth: bool,
-        temp: bool
+        group: usize
     },
     Face {
         a: V3,
@@ -35,11 +35,8 @@ pub enum DisplayCommand {
         c: V3,
         colour: Srgba,
         depth: bool,
-        temp: bool
+        group: usize
     },
-    ClearTempPoints,
-    ClearTempEdges,
-    ClearTempFaces,
 }
 
 pub struct Viewer {
@@ -137,25 +134,10 @@ impl Viewer {
 
             while let Ok(command) = self.receiver.try_recv() {
                 match command {
-                    DisplayCommand::Clear => self.debug.clear(),
-                    DisplayCommand::Point { pos, radius, colour, depth, temp } => if temp {
-                        self.debug.temp_point(pos.0.into(), radius, colour, depth)
-                    } else {
-                        self.debug.point(pos.0.into(), radius, colour, depth)
-                    },
-                    DisplayCommand::Edge { a, b, thickness, colour, depth, temp } => if temp {
-                        self.debug.temp_edge(a.0.into(), b.0.into(), thickness, colour, depth)
-                    } else {
-                        self.debug.edge(a.0.into(), b.0.into(), thickness, colour, depth)
-                    },
-                    DisplayCommand::Face { a, b, c, colour, depth, temp } => if temp {
-                        self.debug.temp_face(a.0.into(), b.0.into(), c.0.into(), colour, depth)
-                    } else {
-                        self.debug.face(a.0.into(), b.0.into(), c.0.into(), colour, depth)
-                    },
-                    DisplayCommand::ClearTempPoints => self.debug.clear_temp_points(),
-                    DisplayCommand::ClearTempEdges => self.debug.clear_temp_edges(),
-                    DisplayCommand::ClearTempFaces => self.debug.clear_temp_faces(),
+                    DisplayCommand::Clear => self.debug.clear_all(),
+                    DisplayCommand::Point { pos, radius, colour, depth, group } => self.debug.point(group, pos.0.into(), radius, colour, depth),
+                    DisplayCommand::Edge { a, b, thickness, colour, depth, group } => self.debug.edge(group, a.0.into(), b.0.into(), thickness, colour, depth),
+                    DisplayCommand::Face { a, b, c, colour, depth, group } => self.debug.face(group, a.0.into(), b.0.into(), c.0.into(), colour, depth),
                 }
             }
 

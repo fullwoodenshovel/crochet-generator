@@ -60,6 +60,15 @@ pub enum ProcessorCommand {
     }
 }
 
+#[derive(Clone, Copy)]
+enum Group {
+    Seed,
+    Dijkstras,
+    IsolinePoints,
+    IsolineConnectors,
+    IsolinePruned
+}
+
 impl Processor {
     fn new(sender: mpsc::UnboundedSender<DisplayCommand>, receiver: mpsc::UnboundedReceiver<ProcessorCommand>, model: Arc<Model>) -> Self {
         let mut vertex_to_faces: Vec<Vec<usize>> = std::iter::repeat_with(Vec::new).take(model.mesh.vertices.len()).collect();
@@ -75,26 +84,29 @@ impl Processor {
     async fn run(&mut self) {
         const STITCH_SIZE_EPSILON_MULTIPLIER: f32 = 0.25;
 
-        let ProcessorCommand::MouseDownOnPoint { face_index, position } = self.receiver.recv().await.unwrap();
-        self.sender.send(DisplayCommand::Point { pos: position, radius: self.model.radius * 0.02, colour: Srgba::BLUE, depth: true, temp: false }).unwrap();
-        let stitch_size = self.model.radius / 3.0;
-        let nodes = self.dijkstras(stitch_size * STITCH_SIZE_EPSILON_MULTIPLIER, position.into(), face_index);
-        let furthest_len = nodes.last().unwrap().0;
-        let len = nodes.len();
-        println!("Diameter: {}; furthest_len: {furthest_len:?}", self.model.radius * 2.0);
-        for (geo_len, node) in &nodes {
-            // tokio::time::sleep(Duration::from_secs_f32(6.0 / len as f32)).await;
-            self.sender.send(
-                DisplayCommand::Point {
-                    pos: node.pos.into(),
-                    radius: self.model.radius * 0.007,
-                    colour: hsv(3.0 * geo_len.0 / furthest_len.0, 1.0, 1.0),
-                    depth: true,
-                    temp: true
-            }).unwrap()
+        while let ProcessorCommand::MouseDownOnPoint { face_index, position } = self.receiver.recv().await.unwrap() {
+            self.sender.send(DisplayCommand::Clear).unwrap();
+            self.sender.send(DisplayCommand::Point { pos: position, radius: self.model.radius * 0.02, colour: Srgba::BLUE, depth: true, group: Group::Seed as usize }).unwrap();
+            let stitch_size = self.model.radius / 3.0;
+            let nodes = self.dijkstras(stitch_size * STITCH_SIZE_EPSILON_MULTIPLIER, position.into(), face_index);
+            let furthest_len = nodes.last().unwrap().0;
+            let len = nodes.len();
+            println!("Diameter: {}; furthest_len: {furthest_len:?}", self.model.radius * 2.0);
+            for (geo_len, node) in &nodes {
+                // tokio::time::sleep(Duration::from_secs_f32(6.0 / len as f32)).await;
+                self.sender.send(
+                    DisplayCommand::Point {
+                        pos: node.pos.into(),
+                        radius: self.model.radius * 0.007,
+                        colour: hsv(3.0 * geo_len.0 / furthest_len.0, 1.0, 1.0),
+                        depth: true,
+                        group: Group::Dijkstras as usize
+                        
+                }).unwrap()
+            }
+    
+            let isolines = self.isolines(nodes, stitch_size, stitch_size * STITCH_SIZE_EPSILON_MULTIPLIER);
         }
-
-        let isolines = self.isolines(nodes, stitch_size, stitch_size * STITCH_SIZE_EPSILON_MULTIPLIER);
     }
 
     fn get_connected_faces(&self, v1: usize, v2: usize) -> Vec<usize> {
@@ -102,16 +114,6 @@ impl Processor {
         let faces2 = &self.vertex_to_faces[v2];
         faces1.retain(|face| faces2.contains(face));
         faces1
-    }
-
-    fn deref_face(&self, face_index: usize) -> [V3; 3] {
-        let is = self.model.mesh.faces[face_index].vertices;
-        is.map(|i| self.model.mesh.vertices[i])
-    }
-
-    fn send_indexed_face_command(&self, face_index: usize, colour: Srgba, depth: bool, temp: bool) {
-        let [a, b, c] = self.deref_face(face_index);
-        self.sender.send(DisplayCommand::Face { a, b, c, colour, depth, temp }).unwrap()
     }
 }
 
