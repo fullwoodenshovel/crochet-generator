@@ -20,10 +20,16 @@ impl Processor {
     ///     ]
     /// ]
     /// ```
-    pub fn isolines(&mut self, nodes: Vec<(OrderedFloat<f32>, Node)>, stitch_size: f32, epsilon: f32) -> Vec<Vec<Vec<NodeOnEdge>>> {
+    pub fn isolines(&mut self, nodes: Vec<(OrderedFloat<f32>, Node)>, stitch_size: f32, epsilon: f32) -> Vec<Vec<(f32, Vec<NodeOnEdge>)>> {
         let points = self.get_isoline_points(nodes, stitch_size, epsilon);
         let faces = self.connect_isoline_faces(points);
-        self.connect_isoline_points(faces)
+        let isolines = self.connect_isoline_points(faces);
+        let isolines_lens: Vec<Vec<(f32, Vec<NodeOnEdge>)>> = isolines.into_iter().map(|row|
+            row.into_iter().map(|circle|
+                (get_circle_len(&circle), circle)
+            ).collect()
+        ).collect();
+        self.prune_isolines(isolines_lens, stitch_size)
     }
 
     fn get_isoline_points(&mut self, nodes: Vec<(OrderedFloat<f32>, Node)>, stitch_size: f32, epsilon: f32) -> Vec<HashMap<OnEdge, Vec<PVec3>>> {
@@ -126,7 +132,7 @@ impl Processor {
         result
     }
 
-    fn connect_isoline_points(&mut self, faces: Vec<HashMap<usize, Vec<[NodeOnEdge; 2]>>>) -> Vec<Vec<Vec<NodeOnEdge>>> {
+    fn connect_isoline_points(&self, faces: Vec<HashMap<usize, Vec<[NodeOnEdge; 2]>>>) -> Vec<Vec<Vec<NodeOnEdge>>> {
         let mut result = vec![Vec::new(); faces.len()];
         for (i, mut isoline) in faces.into_iter().enumerate() {
             while let Some(face) = isoline.keys().next() {
@@ -184,6 +190,47 @@ impl Processor {
         result
     }
 
+    fn prune_isolines(&self, isolines: Vec<Vec<(f32, Vec<NodeOnEdge>)>>, stitch_size: f32) -> Vec<Vec<(f32, Vec<NodeOnEdge>)>> {
+        let mut result = vec![Vec::new(); isolines.len()];
+        let total_isolines = isolines.len();
+        for (i, row) in isolines.into_iter().enumerate() {
+            if i == total_isolines - 1 {
+                println!("Skipped {row:?}");
+
+                // These assertions essentially ensure that the last isoline
+                // is just one point. This is potentially guarunteed by
+                // the code, but is being proven anecdotally instead of
+                // logically, if this test always passes.
+                // It may fail due to floating point imprecisions.
+                assert!(row.len() == 1);
+                assert!(row[0].1.len() == 2);
+                assert!(row[0].1[0] == row[0].1[1]);
+                assert!(row[0].0 == 0.0);
+
+                result[i] = vec![(0.0, vec![row[0].1[0]])];
+                continue;
+            };
+            for (len, circle) in row {
+                if circle.len() <= 2 {
+                    println!("Length check: {:?}", circle);
+                    continue;
+                }
+                if len < stitch_size * 1.5 {
+                    println!("Epsilon check: {:?}", circle);
+                    continue;
+                }
+                result[i].push((len, circle));
+            }
+        }
+
+        let len = result.len();
+        for (i, row) in result.iter().enumerate() {
+            assert!(!row.is_empty(), "Empty at {i} / {len}")
+        }
+
+        result
+    }
+
     fn node_from_vertex(&self, index: usize) -> Node {
         Node { connectivity: Connectivity::OnVertex(index), pos: self.model.mesh.vertices[index].into() }
     }
@@ -235,4 +282,14 @@ impl OnEdge {
 pub struct NodeOnEdge {
     edge: OnEdge,
     pos: PVec3,
+}
+
+fn get_circle_len(circle: &[NodeOnEdge]) -> f32 {
+    let mut result = 0.0;
+    let len = circle.len();
+    for i in 0..len {
+        result += (circle[i].pos - circle[(i+1) % len].pos).magnitude()
+    }
+
+    result
 }
