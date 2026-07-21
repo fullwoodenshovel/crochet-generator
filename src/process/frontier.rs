@@ -10,8 +10,7 @@ use super::Node;
 #[derive(Default)]
 pub struct Frontier {
     tree: BTreeSet<(OrderedFloat<f32>, Node)>,
-    map: HashMap<Node, f32>,
-    output: Vec<(OrderedFloat<f32>, Node)>
+    map: HashMap<Node, (f32, Option<Node>)>,
 }
 
 enum UpdateStatus {
@@ -25,15 +24,15 @@ impl Frontier {
         Self::default()
     }
 
-    pub fn update(&mut self, node: Node, geo_len: f32) {
+    pub fn update(&mut self, node: Node, pre: Option<Node>, geo_len: f32) {
         let insert = match self.map.entry(node) {
             // If this node hasn't been entered yet, just enter it.
-            Entry::Vacant(vacant_entry) => { vacant_entry.insert_entry(geo_len); UpdateStatus::Vacant },
+            Entry::Vacant(vacant_entry) => { vacant_entry.insert_entry((geo_len, pre)); UpdateStatus::Vacant },
             // If this node has already been entered, check if the new length is shorter.
             Entry::Occupied(mut occupied_entry) => {
-                let prev = *occupied_entry.get();
+                let prev = occupied_entry.get().0;
                 if geo_len < prev {
-                    *occupied_entry.get_mut() = geo_len;
+                    *occupied_entry.get_mut() = (geo_len, pre);
                     UpdateStatus::OccupiedUpdate(prev)
                 } else {
                     UpdateStatus::OccupiedNone
@@ -52,14 +51,12 @@ impl Frontier {
         }
     }
 
-    pub fn pop_store_smallest(&mut self) -> Option<(Node, f32)> {
+    pub fn pop_smallest(&mut self) -> Option<(Node, f32)> {
         let (float, node) = self.tree.pop_first()?;
-        // assert!(self.map.remove(&node).is_some()); // This is removed so we don't check nodes we already checked.
-        self.output.push((float, node));
         Some((node, float.0))
     }
 
-    pub fn get_output(self) -> Vec<(OrderedFloat<f32>, Node)> {
-        self.output
+    pub fn get_output(self) -> HashMap<Node, (f32, Option<Node>)> {
+        self.map
     }
 }

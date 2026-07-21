@@ -20,8 +20,8 @@ impl Processor {
     ///     ]
     /// ]
     /// ```
-    pub fn isolines(&mut self, nodes: Vec<(OrderedFloat<f32>, Node)>, stitch_size: f32, epsilon: f32) -> (Vec<Vec<(f32, Vec<NodeOnEdge>)>>, Node) {
-        let (points, furthest_point) = self.get_isoline_points(nodes, stitch_size, epsilon);
+    pub fn isolines(&self, nodes: &HashMap<Node, (f32, Option<Node>)>, furthest_len: f32, furthest_point: Node, stitch_size: f32, epsilon: f32) -> (Vec<Vec<(f32, Vec<NodeOnEdge>)>>, Node) {
+        let (points, furthest_point) = self.get_isoline_points(nodes, furthest_len, furthest_point, stitch_size, epsilon);
         let faces = self.connect_isoline_faces(points);
         let isolines = self.connect_isoline_points(faces);
         let isolines_lens: Vec<Vec<(f32, Vec<NodeOnEdge>)>> = isolines.into_iter().map(|row|
@@ -33,21 +33,13 @@ impl Processor {
         (result, furthest_point)
     }
 
-    fn get_isoline_points(&mut self, nodes: Vec<(OrderedFloat<f32>, Node)>, stitch_size: f32, epsilon: f32) -> (Vec<HashMap<OnEdge, Vec<PVec3>>>, Node) {
-        // This could be optimised by moving this type conversion into dijkstras.rs immediately.
-        // However, we need to store the longest length alongside this data, if this optimisation is used.
-        let len = nodes[nodes.len() - 1].0.0;
-        let furthest_point = nodes[nodes.len() - 1].1;
+    fn get_isoline_points(&self, map: &HashMap<Node, (f32, Option<Node>)>, len: f32, furthest_point: Node, stitch_size: f32, epsilon: f32) -> (Vec<HashMap<OnEdge, Vec<PVec3>>>, Node) {
         let old_ss = stitch_size;
         let total_lines = (len / old_ss).round();
         let utotal_lines = total_lines as usize;
         let stitch_size = len / total_lines;
         let div_1_stitch_size = 1.0 / stitch_size;
         println!("Stitch size off by {:.2}%", 100.0 * (1.0 - stitch_size / old_ss).abs());
-        let mut map = HashMap::new();
-        for (geo_len, node) in nodes {
-            map.entry(node).insert_entry(geo_len);
-        }
 
         let edges: HashSet<_> = self.model.mesh.faces.iter().flat_map(|face| {
             let v = face.vertices;

@@ -13,7 +13,8 @@ use crate::model::{LIGHT_DIR, Model};
 type V3 = stl_io::Vector<f32>;
 
 pub enum DisplayCommand {
-    Clear,
+    ClearAll,
+    Clear(usize),
     Point {
         pos: V3,
         radius: f32,
@@ -134,7 +135,8 @@ impl Viewer {
 
             while let Ok(command) = self.receiver.try_recv() {
                 match command {
-                    DisplayCommand::Clear => self.debug.clear_all(),
+                    DisplayCommand::ClearAll => self.debug.clear_all(),
+                    DisplayCommand::Clear(name) => self.debug.clear(name),
                     DisplayCommand::Point { pos, radius, colour, depth, group } => self.debug.point(group, pos.0.into(), radius, colour, depth),
                     DisplayCommand::Edge { a, b, thickness, colour, depth, group } => self.debug.edge(group, a.0.into(), b.0.into(), thickness, colour, depth),
                     DisplayCommand::Face { a, b, c, colour, depth, group } => self.debug.face(group, a.0.into(), b.0.into(), c.0.into(), colour, depth),
@@ -146,18 +148,17 @@ impl Viewer {
 
             for event in &frame_input.events {
                 if let Event::MousePress {
-                    button: MouseButton::Left,
+                    button,
                     position,
                     handled: false,
                     ..
-                } = event
+                } = *event
                 {
-                    let dir = self.cam.camera.view_direction_at_pixel(*position);
-                    let origin = self.cam.camera.position_at_pixel(*position);
+                    let dir = self.cam.camera.view_direction_at_pixel(position);
+                    let origin = self.cam.camera.position_at_pixel(position);
 
                     if let Some((face, hit)) = pick_triangle(&self.model, origin, dir) {
-
-                        self.sender.send(ProcessorCommand::MouseDownOnPoint { face_index: face, position: V3::new(Into::<[f32; 3]>::into(hit)) }).unwrap_or_default();
+                        self.sender.send(ProcessorCommand::MouseDownOnPoint { face_index: face, position: V3::new(hit.into()), button }).unwrap_or_default();
                     }
                 }
             }
