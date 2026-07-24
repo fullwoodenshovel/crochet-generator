@@ -20,20 +20,22 @@ impl Processor {
     ///     ]
     /// ]
     /// ```
-    pub fn isolines(&self, nodes: &HashMap<Node, (f32, Option<Node>)>, furthest_len: f32, furthest_point: Node, stitch_size: f32, epsilon: f32) -> (Vec<Vec<(f32, Vec<NodeOnEdge>)>>, Node) {
-        let (points, furthest_point) = self.get_isoline_points(nodes, furthest_len, furthest_point, stitch_size, epsilon);
-        let faces = self.connect_isoline_faces(points);
-        let isolines = self.connect_isoline_points(faces);
+    pub fn isolines(&self, nodes: &HashMap<Node, (f32, Option<Node>)>, furthest_len: f32, furthest_point: Node, stitch_size: f32, epsilon: f32) -> Result<(Vec<Vec<(f32, Vec<NodeOnEdge>)>>, Node)> {
+        let (points, furthest_point) = self.get_isoline_points(nodes, furthest_len, furthest_point, stitch_size, epsilon)?;
+        let faces = self.connect_isoline_faces(points)?;
+        let isolines = self.connect_isoline_points(faces)?;
         let isolines_lens: Vec<Vec<(f32, Vec<NodeOnEdge>)>> = isolines.into_iter().map(|row|
             row.into_iter().map(|circle|
                 (get_circle_len(&circle), circle)
             ).collect()
         ).collect();
-        let result = self.prune_isolines(isolines_lens, stitch_size);
-        (result, furthest_point)
+        println!("{:?}", isolines_lens.iter().map(|b| b.len()).collect::<Vec<_>>());
+        let result = self.prune_isolines(isolines_lens, stitch_size, furthest_point)?;
+        println!("{:?}", result.iter().map(|b| b.len()).collect::<Vec<_>>());
+        Ok((result, furthest_point))
     }
 
-    fn get_isoline_points(&self, map: &HashMap<Node, (f32, Option<Node>)>, len: f32, furthest_point: Node, stitch_size: f32, epsilon: f32) -> (Vec<HashMap<OnEdge, Vec<PVec3>>>, Node) {
+    fn get_isoline_points(&self, map: &HashMap<Node, (f32, Option<Node>)>, len: f32, furthest_point: Node, stitch_size: f32, epsilon: f32) -> Result<(Vec<HashMap<OnEdge, Vec<PVec3>>>, Node)> {
         let old_ss = stitch_size;
         let total_lines = (len / old_ss).round();
         let utotal_lines = total_lines as usize;
@@ -68,7 +70,12 @@ impl Processor {
                 let line = len * div_1_stitch_size;
                 let line_floor = line.floor();
                 if line_floor != prev_line_floor {
-                    assert_eq!((line_floor - prev_line_floor).abs(), 1.0); // This has failed 1 time
+                    assert(
+                        (line_floor - prev_line_floor).abs() == 1.0,
+                        "Internal Error #005",
+                        "Try again, or try moving the seed point slightly.",
+                        ErrorFault::Code(Some(format!("{}", line_floor - prev_line_floor)))
+                    )?;
                     let mid = line_floor.max(prev_line_floor);
                     let ib = (mid - prev_line) / (line - prev_line);
                     let ia = 1.0 - ib;
@@ -91,15 +98,15 @@ impl Processor {
                 prev_node = node;
             }
         }
-        (isoline_points, furthest_point)
+        Ok((isoline_points, furthest_point))
     }
 
-    fn connect_isoline_faces(&self, points: Vec<HashMap<OnEdge, Vec<PVec3>>>) -> Vec<HashMap<usize, Vec<[NodeOnEdge; 2]>>> {
+    fn connect_isoline_faces(&self, points: Vec<HashMap<OnEdge, Vec<PVec3>>>) -> Result<Vec<HashMap<usize, Vec<[NodeOnEdge; 2]>>>> {
         let mut result = vec![HashMap::new(); points.len()];
         for (row, isoline) in points.into_iter().enumerate() {
             let mut faces = HashSet::new();
             for key in isoline.keys() {
-                let [a,b ] = self.faces(*key);
+                let [a, b] = self.faces(*key)?;
                 faces.insert(a);
                 faces.insert(b);
             }
@@ -115,18 +122,48 @@ impl Processor {
                 // This list is cyclical and might need a parity shift in some cases.
                 // The wrong parity could lead to buggy behaviour down the line.
                 let sorted_nodes: Vec<NodeOnEdge> = edges.into_iter().flat_map(|(v, con, mut vec)| {vec.sort_by_cached_key(|curr| (*curr - v).magnitude_squared().ord()); vec.into_iter().map(move |v| NodeOnEdge { edge: con, pos: v })}).collect();
-
+                
                 if sorted_nodes.is_empty() { continue; }
-                assert!(sorted_nodes.len().is_multiple_of(2)); // Each face has an isoline going into and out of it.
-                let returned = result[row].insert(face, (0..sorted_nodes.len()/2).map(|i| [sorted_nodes[i*2], sorted_nodes[i*2+1]]).collect());
-                assert!(returned.is_none());
+
+                assert(
+                    sorted_nodes.len().is_multiple_of(2),
+                    "Internal Error #006",
+                    "Try again, or try moving the seed point slightly.",
+                    ErrorFault::Code(Some(format!("Each face has an isoline going into and out of it.\nlen: {}", sorted_nodes.len())))
+                )?;
+
+                // Estimate for correct parity by minimising total lengths.
+                let parity_checked_sorted_nodes: Vec<NodeOnEdge>;
+                if sorted_nodes.len() > 2 {
+                    let curr_total = sorted_nodes.as_chunks().0.iter().map(|[a, b]| (a.pos - b.pos).magnitude()).sum::<f32>();
+                    let other_total = sorted_nodes[1..].as_chunks().0.iter().map(|[a, b]| (a.pos - b.pos).magnitude()).sum::<f32>()
+                                        + (sorted_nodes.first().unwrap().pos - sorted_nodes.last().unwrap().pos).magnitude();
+                    if curr_total < other_total {
+                        parity_checked_sorted_nodes = sorted_nodes;
+                    } else {
+                        let mut sorted_nodes = sorted_nodes;
+                        let element = sorted_nodes.pop().unwrap();
+                        sorted_nodes.insert(0, element);
+                        parity_checked_sorted_nodes = sorted_nodes;
+                    }
+                } else {
+                    parity_checked_sorted_nodes = sorted_nodes;
+                }
+
+                let returned = result[row].insert(face, (0..parity_checked_sorted_nodes.len()/2).map(|i| [parity_checked_sorted_nodes[i*2], parity_checked_sorted_nodes[i*2+1]]).collect());
+                assert(
+                    returned.is_none(),
+                    "Internal Error #007",
+                    "Try again, or try moving the seed point slightly.",
+                    ErrorFault::Code(Some(format!("returned: {:?}", returned)))
+                )?;
             }
         }
 
-        result
+        Ok(result)
     }
 
-    fn connect_isoline_points(&self, faces: Vec<HashMap<usize, Vec<[NodeOnEdge; 2]>>>) -> Vec<Vec<Vec<NodeOnEdge>>> {
+    fn connect_isoline_points(&self, faces: Vec<HashMap<usize, Vec<[NodeOnEdge; 2]>>>) -> Result<Vec<Vec<Vec<NodeOnEdge>>>> {
         let mut result = vec![Vec::new(); faces.len()];
         for (i, mut isoline) in faces.into_iter().enumerate() {
             while let Some(face) = isoline.keys().next() {
@@ -144,7 +181,7 @@ impl Processor {
                 // circle.push(line[0]);
                 let mut next = line[1];
                 while let Some((point, index)) = {
-                    let index = self.other_face(face, next.edge);
+                    let index = self.other_face(face, next.edge)?;
                     let entry = isoline.get_mut(&index);
                     match entry {
                         Some(entry) => {
@@ -197,10 +234,10 @@ impl Processor {
             }
         }
 
-        result
+        Ok(result)
     }
 
-    fn prune_isolines(&self, isolines: Vec<Vec<(f32, Vec<NodeOnEdge>)>>, stitch_size: f32) -> Vec<Vec<(f32, Vec<NodeOnEdge>)>> {
+    fn prune_isolines(&self, isolines: Vec<Vec<(f32, Vec<NodeOnEdge>)>>, stitch_size: f32, furthest_point: Node) -> Result<Vec<Vec<(f32, Vec<NodeOnEdge>)>>> {
         let draw_edge_point = |a: NodeOnEdge, b: NodeOnEdge, pruned| {
             let (group, edges, points, size) = if pruned {
                 (Group::IsolineConnectors as usize, Srgba::RED, Srgba::RED, 0.01 * self.model.radius)
@@ -244,76 +281,93 @@ impl Processor {
                 //     //  right: NodeOnEdge { edge: OnEdge { a: 134, b: 102 }, pos: PVec3 { vec: [60.106102, 5.349101, 2.0404572] } }
                 // }
 
-                result[i] = vec![(0.0, vec![row[0].1[0]])];
+                // result[i] = vec![(0.0, vec![row[0].1[0]])];
+                result[i] = vec![(0.0, vec![self.node_into_on_edge(furthest_point)])];
                 continue;
             };
             for (len, circle) in row {
                 let circle_len = circle.len();
-                if circle_len <= 2 {
+                if circle_len <= 2 || len < stitch_size * 1.5 {
                     for i in 0..circle_len {
                         draw_edge_point(circle[i], circle[(i + 1) % circle_len], true);
                     }
                     continue;
                 }
-                if len < stitch_size * 1.5 {
-                    for i in 0..circle_len {
-                        draw_edge_point(circle[i], circle[(i + 1) % circle_len], true);
-                    }
-                    continue;
-                }
+
                 for i in 0..circle_len {
                     draw_edge_point(circle[i], circle[(i + 1) % circle_len], false);
                 }
+
                 result[i].push((len, circle));
             }
         }
 
         let len = result.len();
         for (i, row) in result.iter().enumerate() {
-            assert!(!row.is_empty(), "Empty at {i} / {len}")
+            assert(
+                !row.is_empty(),
+                "Internal Error #008",
+                "Try again, or try moving the seed point slightly.",
+                ErrorFault::Code(Some(format!("Empty isoline vec at {i} / {len}")))
+            )?;
         }
 
-        result
+        Ok(result)
     }
 
-    fn node_from_vertex(&self, index: usize) -> Node {
+    pub fn node_from_vertex(&self, index: usize) -> Node {
         Node { connectivity: Connectivity::OnVertex(index), pos: self.model.mesh.vertices[index].into() }
     }
 
-    fn node_from_spacing(&self, a: usize, b: usize, pos: PVec3) -> Node {
+    pub fn node_from_spacing(&self, a: usize, b: usize, pos: PVec3) -> Node {
         Node { connectivity: Connectivity::on_edge(a, b), pos }
     }
 
-    fn other_face(&self, face: usize, edge: OnEdge) -> usize {
+    fn other_face(&self, face: usize, edge: OnEdge) -> Result<usize> {
         let v1 = edge.a;
         let v2 = edge.b;
         let mut faces1 = self.vertex_to_faces[v1].clone();
         let faces2 = &self.vertex_to_faces[v2];
-        assert!(faces1.contains(&face));
+        assert(
+            faces1.contains(&face),
+            "Internal Error #009",
+            "Try again, or try moving the seed point slightly.",
+            ErrorFault::Code(None)
+        )?;
         faces1.retain(|curr| faces2.contains(curr) && *curr != face);
-        assert!(faces1.len() == 1); // This could be possible if the STL file is degenerate, specifically not watertight.
-        faces1.pop().unwrap()
+        assert(
+            faces1.len() == 1,
+            "STL file is not watertight.",
+            "Choose a different, watertight STL file.",
+            ErrorFault::File
+        )?;
+        Ok(faces1.pop().unwrap())
     }
 
-    fn faces(&self, edge: OnEdge) -> [usize; 2] {
+    fn faces(&self, edge: OnEdge) -> Result<[usize; 2]> {
         let v1 = edge.a;
         let v2 = edge.b;
         let mut faces1 = self.vertex_to_faces[v1].clone();
         let faces2 = &self.vertex_to_faces[v2];
         faces1.retain(|curr| faces2.contains(curr));
-        assert!(faces1.len() == 2); // This could be possible if the STL file is degenerate, specifically not watertight.
-        [faces1.pop().unwrap(), faces1.pop().unwrap()]
+        assert(
+            faces1.len() == 2,
+            "STL file is not watertight.",
+            "Choose a different, watertight STL file.",
+            ErrorFault::File
+        )?;
+        Ok([faces1.pop().unwrap(), faces1.pop().unwrap()])
     }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-struct OnEdge {
-    a: usize,
-    b: usize
+pub struct OnEdge {
+    pub a: usize,
+    pub b: usize
 }
 
 impl OnEdge {
-    fn new(a: usize, b: usize) -> Self {
+    pub fn new(a: usize, b: usize) -> Self {
         let (a, b) = if a >= b {
             (a, b)
         } else {
@@ -325,8 +379,8 @@ impl OnEdge {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct NodeOnEdge {
-    edge: OnEdge,
-    pos: PVec3,
+    pub edge: OnEdge,
+    pub pos: PVec3,
 }
 
 fn get_circle_len(circle: &[NodeOnEdge]) -> f32 {

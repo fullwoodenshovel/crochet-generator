@@ -25,6 +25,65 @@ impl Processor {
         (frontier.get_output(), final_node.unwrap())
     }
 
+    pub fn reverse_traverse(&self, info: &GeneratedInfo, position: Vector<f32>, face_index: usize) {
+        let GeneratedInfo { nodes, stitch_size: _, epsilon, seed_point, seed_face: _ } = info;
+        let v = self.model.mesh.faces[face_index].vertices;
+        let mut points = v.map(|i| Node { connectivity: Connectivity::OnVertex(i), pos: self.model.mesh.vertices[i].into() }).to_vec();
+        for [a, b] in [[v[0], v[1]], [v[1], v[2]], [v[2], v[0]]] {
+            points.append(&mut self.spaced_points(a, b, *epsilon).into_iter().map(|pos| Node { connectivity: Connectivity::on_edge(a, b), pos}).collect());
+        }
+
+        let mut closest = None;
+        let mut distance = f32::INFINITY;
+
+        for point in points {
+            let pos = point.pos;
+            let d = (pos - position.into()).magnitude();
+            if d < distance {
+                distance = d;
+                closest = Some(point);
+            }
+        }
+
+        let mut closest = closest.unwrap();
+        self.sender.send(DisplayCommand::Clear(Group::ReverseTraverse as usize)).unwrap();
+
+        self.sender.send(DisplayCommand::Point {
+            pos: closest.pos.into(),
+            radius: self.model.radius * 0.02,
+            colour: Srgba { r: 240, g: 240, b: 255, a: 255 },
+            depth: true,
+            group: Group::ReverseTraverse as usize
+        }).unwrap();
+
+        while let (_geo_len, Some(node)) = nodes.get(&closest).unwrap() {
+            self.sender.send(DisplayCommand::Edge {
+                a: closest.pos.into(),
+                b: node.pos.into(),
+                thickness: self.model.radius * 0.02,
+                colour: Srgba { r: 245, g: 245, b: 245, a: 255 },
+                depth: true,
+                group: Group::ReverseTraverse as usize
+            }).unwrap();
+            self.sender.send(DisplayCommand::Point {
+                pos: node.pos.into(),
+                radius: self.model.radius * 0.02,
+                colour: Srgba { r: 240, g: 240, b: 255, a: 255 },
+                depth: true,
+                group: Group::ReverseTraverse as usize
+            }).unwrap();
+            closest = *node;
+        }
+        self.sender.send(DisplayCommand::Edge {
+            a: closest.pos.into(),
+            b: (*seed_point).into(),
+            thickness: self.model.radius * 0.02,
+            colour: Srgba { r: 245, g: 245, b: 245, a: 255 },
+            depth: true,
+            group: Group::ReverseTraverse as usize
+        }).unwrap();
+    }
+
     /// Find which nodes are connected to which other nodes, for use in Dijkstra's
     pub fn get_connected_nodes(&self, connectivity: Connectivity, epsilon: f32) -> Vec<Node> {
         // Find the faces a node is connected to.
@@ -114,5 +173,16 @@ impl Processor {
             result.push(fin);
         }
         result
+    }
+
+    /// This function also returns the two vertex nodes
+    pub fn nodes_on_edge(&self, a: usize, b: usize, epsilon: f32) -> Vec<Node> {
+        let mut nodes = Vec::with_capacity(2);
+        let node_a = self.node_from_vertex(a);
+        let node_b = self.node_from_vertex(b);
+        nodes.append(&mut self.spaced_points(a, b, epsilon).into_iter().map(|pos| self.node_from_spacing(a, b, pos)).collect());
+        nodes.push(node_a);
+        nodes.push(node_b);
+        nodes
     }
 }

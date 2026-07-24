@@ -4,7 +4,9 @@ use std::collections::{BTreeSet, HashMap, hash_map::Entry};
 
 use three_d::egui::emath::{Float, OrderedFloat};
 
-use super::Node;
+use crate::process::Result;
+
+use super::{Node, assert};
 
 
 #[derive(Default)]
@@ -24,7 +26,7 @@ impl Frontier {
         Self::default()
     }
 
-    pub fn update(&mut self, node: Node, pre: Option<Node>, geo_len: f32) {
+    pub fn update(&mut self, node: Node, pre: Option<Node>, geo_len: f32) -> Result<()> {
         let insert = match self.map.entry(node) {
             // If this node hasn't been entered yet, just enter it.
             Entry::Vacant(vacant_entry) => { vacant_entry.insert_entry((geo_len, pre)); UpdateStatus::Vacant },
@@ -42,13 +44,25 @@ impl Frontier {
 
         // If this node already existed, first remove it
         if let UpdateStatus::OccupiedUpdate(old) = insert {
-            assert!(self.tree.remove(&(old.ord(), node)));
+            assert(
+                self.tree.remove(&(old.ord(), node)),
+                "Internal Error #003",
+                "Try again, or try moving the seed point slightly.",
+                super::ErrorFault::Code(None)
+            )?;
         }
 
         // If we are adding / updating a node, push it to the tree
         if matches!(insert, UpdateStatus::OccupiedUpdate(_) | UpdateStatus::Vacant) {
-            assert!(self.tree.insert((geo_len.ord(), node)))
+            assert(
+                self.tree.insert((geo_len.ord(), node)),
+                "Internal Error #004",
+                "Try again, or try moving the seed point slightly.",
+                super::ErrorFault::Code(None)
+            )?;
         }
+
+        Ok(())
     }
 
     pub fn pop_smallest(&mut self) -> Option<(Node, f32)> {
