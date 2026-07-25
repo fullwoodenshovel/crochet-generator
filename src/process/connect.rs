@@ -9,12 +9,6 @@ use crate::process::isolines::OnEdge;
 
 use super::*;
 
-// pub enum StitchCommand {
-//     Single,
-//     Inc(usize),
-//     Dec(usize),
-// }
-
 pub struct CircleTree {
     pub circle: Vec<NodeOnEdge>,
     pub circle_len: f32,
@@ -221,11 +215,9 @@ impl Processor {
                         }
 
                         fn intersects(self) -> Result<bool> {
-                            assert(
+                            assert_internal::<1>(
                                 matches!(self, Self::None | Self::Intersects),
-                                "Internal Error #001",
-                                "Try again, or try moving the seed point slightly.",
-                                ErrorFault::Code(Some(format!("{self:?}")))
+                                Some(format!("{self:?}"))
                             )?;
                             Ok(matches!(self, Self::Intersects))
                         }
@@ -276,11 +268,9 @@ impl Processor {
                         }
 
                         let mut intersects = Intersects::new();
-                        assert(
+                        assert_internal::<2>(
                             ordered_points.len() >= 4 && ordered_points.len().is_multiple_of(2),
-                            "Internal Error #002",
-                            "Try again, or try moving the seed point slightly.",
-                            ErrorFault::Code(Some(format!("{:?}", ordered_points)))
+                            Some(format!("{:?}", ordered_points))
                         )?;
                         for point in ordered_points {
                             intersects.update(point);

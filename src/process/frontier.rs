@@ -4,7 +4,7 @@ use std::collections::{BTreeSet, HashMap, hash_map::Entry};
 
 use three_d::egui::emath::{Float, OrderedFloat};
 
-use crate::process::Result;
+use crate::process::{Result, assert_internal};
 
 use super::{Node, assert};
 
@@ -44,21 +44,17 @@ impl Frontier {
 
         // If this node already existed, first remove it
         if let UpdateStatus::OccupiedUpdate(old) = insert {
-            assert(
+            assert_internal::<3>(
                 self.tree.remove(&(old.ord(), node)),
-                "Internal Error #003",
-                "Try again, or try moving the seed point slightly.",
-                super::ErrorFault::Code(None)
+                None
             )?;
         }
 
         // If we are adding / updating a node, push it to the tree
         if matches!(insert, UpdateStatus::OccupiedUpdate(_) | UpdateStatus::Vacant) {
-            assert(
+            assert_internal::<4>(
                 self.tree.insert((geo_len.ord(), node)),
-                "Internal Error #004",
-                "Try again, or try moving the seed point slightly.",
-                super::ErrorFault::Code(None)
+                None
             )?;
         }
 

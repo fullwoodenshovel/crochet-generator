@@ -5,11 +5,11 @@ use std::collections::HashMap;
 use super::*;
 
 impl Processor {
-    pub fn dijkstras(&self, epsilon: f32, seed_pos: PVec3, seed_face: usize) -> (HashMap<Node, (f32, Option<Node>)>, Node) {
+    pub fn dijkstras(&self, epsilon: f32, seed_pos: PVec3, seed_face: usize) -> Result<(HashMap<Node, (f32, Option<Node>)>, Node)> {
         // Initialise the frontier with the points touching the same face
         let mut frontier = Frontier::new();
         for node in self.get_nodes_connected_to_face(seed_face, epsilon) {
-            frontier.update(node, None, (seed_pos - node.pos).magnitude());
+            frontier.update(node, None, (seed_pos - node.pos).magnitude())?;
         }
 
         let mut final_node = None;
@@ -17,12 +17,12 @@ impl Processor {
         while let Some((node, geo_len)) = frontier.pop_smallest() {
             let nodes = self.get_connected_nodes(node.connectivity, epsilon);
             for updating_node in nodes {
-                frontier.update(updating_node, Some(node), geo_len + (updating_node.pos - node.pos).magnitude());
+                frontier.update(updating_node, Some(node), geo_len + (updating_node.pos - node.pos).magnitude())?;
             }
             final_node = Some(node)
         }
 
-        (frontier.get_output(), final_node.unwrap())
+        Ok((frontier.get_output(), final_node.unwrap()))
     }
 
     pub fn reverse_traverse(&self, info: &GeneratedInfo, position: Vector<f32>, face_index: usize) {

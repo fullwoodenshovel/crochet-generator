@@ -70,11 +70,9 @@ impl Processor {
                 let line = len * div_1_stitch_size;
                 let line_floor = line.floor();
                 if line_floor != prev_line_floor {
-                    assert(
+                    assert_internal::<5>(
                         (line_floor - prev_line_floor).abs() == 1.0,
-                        "Internal Error #005",
-                        "Try again, or try moving the seed point slightly.",
-                        ErrorFault::Code(Some(format!("{}", line_floor - prev_line_floor)))
+                        Some(format!("{}", line_floor - prev_line_floor))
                     )?;
                     let mid = line_floor.max(prev_line_floor);
                     let ib = (mid - prev_line) / (line - prev_line);
@@ -125,11 +123,9 @@ impl Processor {
                 
                 if sorted_nodes.is_empty() { continue; }
 
-                assert(
+                assert_internal::<6>(
                     sorted_nodes.len().is_multiple_of(2),
-                    "Internal Error #006",
-                    "Try again, or try moving the seed point slightly.",
-                    ErrorFault::Code(Some(format!("Each face has an isoline going into and out of it.\nlen: {}", sorted_nodes.len())))
+                    Some(format!("Each face has an isoline going into and out of it.\nlen: {}", sorted_nodes.len()))
                 )?;
 
                 // Estimate for correct parity by minimising total lengths.
@@ -151,11 +147,9 @@ impl Processor {
                 }
 
                 let returned = result[row].insert(face, (0..parity_checked_sorted_nodes.len()/2).map(|i| [parity_checked_sorted_nodes[i*2], parity_checked_sorted_nodes[i*2+1]]).collect());
-                assert(
+                assert_internal::<7>(
                     returned.is_none(),
-                    "Internal Error #007",
-                    "Try again, or try moving the seed point slightly.",
-                    ErrorFault::Code(Some(format!("returned: {:?}", returned)))
+                    Some(format!("returned: {:?}", returned))
                 )?;
             }
         }
@@ -304,11 +298,9 @@ impl Processor {
 
         let len = result.len();
         for (i, row) in result.iter().enumerate() {
-            assert(
+            assert_internal::<8>(
                 !row.is_empty(),
-                "Internal Error #008",
-                "Try again, or try moving the seed point slightly.",
-                ErrorFault::Code(Some(format!("Empty isoline vec at {i} / {len}")))
+                Some(format!("Empty isoline vec at {i} / {len}"))
             )?;
         }
 
@@ -328,11 +320,9 @@ impl Processor {
         let v2 = edge.b;
         let mut faces1 = self.vertex_to_faces[v1].clone();
         let faces2 = &self.vertex_to_faces[v2];
-        assert(
+        assert_internal::<9>(
             faces1.contains(&face),
-            "Internal Error #009",
-            "Try again, or try moving the seed point slightly.",
-            ErrorFault::Code(None)
+            None
         )?;
         faces1.retain(|curr| faces2.contains(curr) && *curr != face);
         assert(

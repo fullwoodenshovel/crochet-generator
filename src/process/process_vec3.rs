@@ -82,6 +82,12 @@ impl PVec3 {
     pub fn magnitude_squared(self) -> f32 {
         self.vec[0] * self.vec[0] + self.vec[1] * self.vec[1] + self.vec[2] * self.vec[2]
     }
+
+    pub fn dot(self, other: Self) -> f32 {
+        self.vec[0] * other.vec[0] +
+        self.vec[1] * other.vec[1] +
+        self.vec[2] * other.vec[2]
+    }
 }
 
 impl From<Vector<f32>> for PVec3 {
