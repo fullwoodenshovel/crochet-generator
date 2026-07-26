@@ -5,7 +5,9 @@ use std::sync::Arc;
 use anyhow::Result;
 use three_d::*;
 use tokio::sync::mpsc;
-use crate::process::ProcessorCommand;
+use std::thread::JoinHandle;
+use crate::process::Output;
+use crate::process::{Processor, ProcessorCommand};
 use crate::camera::OrbitCamera;
 use crate::debug::DebugRenderer;
 use crate::model::{LIGHT_DIR, Model};
@@ -52,28 +54,68 @@ pub struct Viewer {
     ambient: AmbientLight,
     directional: DirectionalLight,
 
-    mesh: Gm<Mesh, PhysicalMaterial>,
-    sender: mpsc::UnboundedSender<ProcessorCommand>,
-    receiver: mpsc::UnboundedReceiver<DisplayCommand>
+    mesh: Gm<Mesh, ColorMaterial>,
+    self_sender: mpsc::UnboundedSender<DisplayCommand>,
+    receiver: mpsc::UnboundedReceiver<DisplayCommand>,
+    
+    processor: ProcessorState,
+}
+
+enum ProcessorState {
+    None,
+    Finished(crate::process::Result<Output>, Processor),
+    Empty(Processor),
+    #[cfg(not(target_arch = "wasm32"))]
+    Running(JoinHandle<(crate::process::Result<Output>, Processor)>),
+}
+
+impl ProcessorState {
+    fn take(&mut self) -> ProcessorState {
+        std::mem::replace(self, ProcessorState::None)
+    }
 }
 
 impl Viewer {
-    pub fn new(path: &str, receiver: mpsc::UnboundedReceiver<DisplayCommand>, sender: mpsc::UnboundedSender<ProcessorCommand>) -> Result<Self> {
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn from_default_path() -> Result<Self> {
+        let path = "/home/fullw/Documents/Safekeeping/Coding/rust/crochet-generator/src/model.stl";
+        let model = Model::from_path(path)?;
+
+        Self::from_model(model)
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        let model = Model::from_bytes(bytes)?;
+
+        Self::from_model(model)
+    }
+
+    pub fn from_model(model: Model) -> Result<Self> {
+        let (self_sender, receiver) = mpsc::unbounded_channel();
+
+        #[cfg(target_arch = "wasm32")]
+        let canvas = {
+            use wasm_bindgen::JsCast;
+            web_sys::window().unwrap()
+                .document().unwrap()
+                .get_element_by_id("glcanvas").unwrap()
+                .dyn_into::<web_sys::HtmlCanvasElement>().unwrap()
+        };
+
         let window = Window::new(WindowSettings {
             title: "STL Viewer".to_string(),
-            max_size: Some((1920, 1080)),
+            #[cfg(target_arch = "wasm32")]
+            canvas: Some(canvas),
             ..Default::default()
         })?;
 
         let context = window.gl();
 
-        let model = Model::load(path)?;
-
         let viewport = window.viewport();
         let cam = OrbitCamera::new(viewport, model.centre, model.radius);
 
         let gui = GUI::new(&context);
-
+        
         let ambient = AmbientLight::new(&context, 0.3, Srgba::WHITE);
         let directional = DirectionalLight::new(
             &context,
@@ -85,16 +127,13 @@ impl Viewer {
         let cpu_mesh = model.cpu_mesh();
         let gpu_mesh = Mesh::new(&context, &cpu_mesh);
 
-        let mut material = PhysicalMaterial::new_opaque(
-            &context,
-            &CpuMaterial {
-                albedo: Srgba::new(180, 185, 210, 255),
-                ..Default::default()
-            },
-        );
+        let mut material = ColorMaterial {
+            color: Srgba::WHITE,
+            ..Default::default()
+        };
 
         material.render_states.cull = Cull::None;
-
+        
         let mesh = Gm::new(gpu_mesh, material);
 
         Ok(Self {
@@ -106,8 +145,9 @@ impl Viewer {
             ambient,
             directional,
             mesh,
-            sender,
             receiver,
+            self_sender,
+            processor: ProcessorState::None,
         })
     }
 
@@ -145,6 +185,29 @@ impl Viewer {
 
             /* IMPORTANT: correct pipeline */
             self.debug.upload();
+            
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                self.processor = match self.processor.take() {
+                    ProcessorState::Running(handle) => {
+                        if handle.is_finished() {
+                            let (output, processor) = handle.join().unwrap(); // This unwrap could panic if the other thread panics.
+                            ProcessorState::Finished(output, processor)
+                        } else {
+                            ProcessorState::Running(handle)
+                        }
+                    },
+                    state => state
+                };
+            }
+
+            self.processor = match self.processor.take() {
+                ProcessorState::Finished(output, processor) => {
+                    display_output(output);
+                    ProcessorState::Empty(processor)
+                },
+                state => state
+            };
 
             for event in &frame_input.events {
                 if let Event::MousePress {
@@ -158,7 +221,37 @@ impl Viewer {
                     let origin = self.cam.camera.position_at_pixel(position);
 
                     if let Some((face, hit)) = pick_triangle(&self.model, origin, dir) {
-                        self.sender.send(ProcessorCommand::MouseDownOnPoint { face_index: face, position: V3::new(hit.into()), button }).unwrap_or_default();
+                        let command = ProcessorCommand::MouseDownOnPoint { face_index: face, position: V3::new(hit.into()), button };
+
+                        self.processor = match self.processor.take() {
+                            ProcessorState::None => {
+                                let mut processor = Processor::new(self.model.clone(), self.self_sender.clone());
+
+                                #[cfg(target_arch = "wasm32")]
+                                {
+                                    ProcessorState::Finished(processor.run(command), processor)
+                                }
+                                #[cfg(not(target_arch = "wasm32"))]
+                                {
+                                    let handle = std::thread::spawn(|| { (processor.run(command), processor)});
+                                    ProcessorState::Running(handle)
+                                }
+                            },
+                            ProcessorState::Empty(mut processor) => {
+                                #[cfg(target_arch = "wasm32")]
+                                {
+                                    ProcessorState::Finished(processor.run(command), processor)
+                                }
+                                #[cfg(not(target_arch = "wasm32"))]
+                                {
+                                    let handle = std::thread::spawn(|| { (processor.run(command), processor)});
+                                    ProcessorState::Running(handle)
+                                }
+                            },
+                            ProcessorState::Finished(output, processor) => ProcessorState::Finished(output, processor),
+                            #[cfg(not(target_arch = "wasm32"))]
+                            ProcessorState::Running(handle) => ProcessorState::Running(handle),
+                        }
                     }
                 }
             }
@@ -186,6 +279,10 @@ impl Viewer {
             
         });
     }
+}
+
+fn display_output(output: crate::process::Result<Output>) {
+    println!("{output:?}");
 }
 
 /* ================= GUI ================= */
@@ -218,7 +315,7 @@ fn build_gui(
             egui::vec2(220.0, 100.0),
         ),
         4.0,
-        egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 160, 40)),
+        egui::Stroke::new(2.0f32, egui::Color32::from_rgb(255, 160, 40)),
         egui::StrokeKind::Middle,
     );
 
@@ -234,7 +331,7 @@ fn build_gui(
     // LINE
     painter.line_segment(
         [egui::pos2(50.0, 540.0), egui::pos2(440.0, 600.0)],
-        egui::Stroke::new(3.0, egui::Color32::from_rgb(255, 80, 80)),
+        egui::Stroke::new(3.0f32, egui::Color32::from_rgb(255, 80, 80)),
     );
 
     // TEXT

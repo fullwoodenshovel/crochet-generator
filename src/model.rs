@@ -31,13 +31,27 @@ pub struct Model {
 }
 
 impl Model {
-    pub fn load(path: &str) -> Result<Self> {
+    pub fn from_path(path: &str) -> Result<Self> {
         let file = File::open(path)
             .with_context(|| format!("Couldn't open STL file '{}'", path))?;
 
-        let mut mesh = stl_io::read_stl(&mut BufReader::new(file))
+        let mut read = BufReader::new(file);
+        Self::from_read(&mut read)
+    }
+    
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        let mut read = std::io::Cursor::new(bytes);
+        Self::from_read(&mut read)
+    }
+
+    pub fn from_read<R: std::io::Read + std::io::Seek>(read: &mut R) -> Result<Self> {
+        let mesh = stl_io::read_stl(read)
             .context("Couldn't parse STL")?;
 
+        Ok(Self::from_mesh(mesh))
+    }
+
+    pub fn from_mesh(mut mesh: IndexedMesh) -> Self {
         for v in &mut mesh.vertices {
             *v = zup_to_yup(*v);
         }
@@ -56,12 +70,12 @@ impl Model {
 
         let baked_mesh = bake_flat_shaded_mesh(&mesh);
 
-        Ok(Self {
+        Self {
             mesh,
             centre,
             radius,
             baked_mesh,
-        })
+        }
     }
 
     pub fn cpu_mesh(&self) -> CpuMesh {

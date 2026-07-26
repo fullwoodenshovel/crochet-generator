@@ -99,6 +99,7 @@ impl Processor {
 
             curr = next;
         }
-        todo!()
+        // todo!()
+        Err(Error { issue: "".to_string(), fault: ErrorFault::User, solution: "no solution" })
     }
 }

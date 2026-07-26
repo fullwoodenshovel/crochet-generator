@@ -58,17 +58,11 @@ fn assert_internal<const ERROR_NUM: u8>(assertion: bool, debug: Option<String>) 
 
 type V3 = Vector<f32>;
 
-pub async fn main(model: Arc<Model>, sender: mpsc::UnboundedSender<DisplayCommand>, receiver: mpsc::UnboundedReceiver<ProcessorCommand>) {
-    let mut processor = Processor::new(sender, receiver, model);
-    
-    processor.run().await;
-}
-
-struct Processor {
-    sender: mpsc::UnboundedSender<DisplayCommand>,
-    receiver: mpsc::UnboundedReceiver<ProcessorCommand>,
+pub struct Processor {
     model: Arc<Model>,
-    vertex_to_faces: Vec<Vec<usize>>
+    vertex_to_faces: Vec<Vec<usize>>,
+    info: Option<GeneratedInfo>,
+    sender: mpsc::UnboundedSender<DisplayCommand>
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -122,8 +116,13 @@ struct GeneratedInfo {
     seed_face: usize,
 }
 
+#[derive(Debug)]
+pub enum Output {
+    None,
+}
+
 impl Processor {
-    fn new(sender: mpsc::UnboundedSender<DisplayCommand>, receiver: mpsc::UnboundedReceiver<ProcessorCommand>, model: Arc<Model>) -> Self {
+    pub fn new(model: Arc<Model>, sender: mpsc::UnboundedSender<DisplayCommand> ) -> Self {
         let mut vertex_to_faces: Vec<Vec<usize>> = std::iter::repeat_with(Vec::new).take(model.mesh.vertices.len()).collect();
         for (i, face) in model.mesh.faces.iter().enumerate() {
             for vertex in face.vertices {
@@ -131,25 +130,23 @@ impl Processor {
             }
         }
         vertex_to_faces.shrink_to_fit();
-        Self { sender, receiver, model, vertex_to_faces }
+        Self { model, vertex_to_faces, sender, info: None }
     }
 
-    async fn run(&mut self) {
-        let mut info = None;
-        // self.generate_from_seed(Vector::<f32>::new([52.76231, 66.21611, 26.4832]), 56).await;
-        while let Some(ProcessorCommand::MouseDownOnPoint { face_index, position, button }) = self.receiver.recv().await {
-            match button {
-                MouseButton::Left => {
-                    let (nodes, stitch_size, epsilon) = self.generate_from_seed(position, face_index).await.unwrap();
-                    info = Some(GeneratedInfo { nodes, stitch_size, epsilon, seed_point: position.into(), seed_face: face_index });
-                },
-                MouseButton::Right => if let Some(info) = &info { self.reverse_traverse(info, position, face_index) },
-                MouseButton::Middle => (),
-            }
+    pub fn run(&mut self, command: ProcessorCommand) -> Result<Output> {
+        let ProcessorCommand::MouseDownOnPoint { face_index, position, button } = command;
+        match button {
+            MouseButton::Left => {
+                let (nodes, stitch_size, epsilon) = self.generate_from_seed(position, face_index).unwrap();
+                self.info = Some(GeneratedInfo { nodes, stitch_size, epsilon, seed_point: position.into(), seed_face: face_index });
+            },
+            MouseButton::Right => if let Some(info) = &self.info { self.reverse_traverse(info, position, face_index) },
+            MouseButton::Middle => (),
         }
+        Ok(Output::None)
     }
 
-    async fn generate_from_seed(&self, position: Vector<f32>, face_index: usize) -> Result<(HashMap<Node, (f32, Option<Node>)>, f32, f32)> {
+    fn generate_from_seed(&self, position: Vector<f32>, face_index: usize) -> Result<(HashMap<Node, (f32, Option<Node>)>, f32, f32)> {
         const STITCH_SIZE_EPSILON_MULTIPLIER: f32 = 0.25;
         
         self.sender.send(DisplayCommand::ClearAll).unwrap();

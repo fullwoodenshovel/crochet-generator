@@ -29,9 +29,7 @@ impl Processor {
                 (get_circle_len(&circle), circle)
             ).collect()
         ).collect();
-        println!("{:?}", isolines_lens.iter().map(|b| b.len()).collect::<Vec<_>>());
         let result = self.prune_isolines(isolines_lens, stitch_size, furthest_point)?;
-        println!("{:?}", result.iter().map(|b| b.len()).collect::<Vec<_>>());
         Ok((result, furthest_point))
     }
 
