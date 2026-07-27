@@ -102,12 +102,27 @@ impl Viewer {
                 .dyn_into::<web_sys::HtmlCanvasElement>().unwrap()
         };
 
+        #[cfg(target_arch = "wasm32")]
+        let (w, h) = {
+            let doc = web_sys::window().unwrap().document().unwrap();
+            let panel = doc.get_element_by_id("viewer-panel").unwrap();
+            let rect = panel.get_bounding_client_rect();
+            (rect.width() as u32, rect.height() as u32)
+        };
+        
         let window = Window::new(WindowSettings {
             title: "STL Viewer".to_string(),
             #[cfg(target_arch = "wasm32")]
-            canvas: Some(canvas),
+            max_size: Some((w, h)),
             ..Default::default()
         })?;
+
+        // let window = Window::new(WindowSettings {
+        //     title: "STL Viewer".to_string(),
+        //     #[cfg(target_arch = "wasm32")]
+        //     canvas: Some(canvas),
+        //     ..Default::default()
+        // })?;
 
         let context = window.gl();
 

@@ -256,27 +256,6 @@ impl Processor {
         let mut result = vec![Vec::new(); isolines.len()];
         let total_isolines = isolines.len();
         for (i, row) in isolines.into_iter().enumerate() {
-            if i == total_isolines - 1 {
-
-                // These assertions have been removed because it all seems to be an artifact of floating point precision.
-
-                // // These assertions essentially ensure that the last isoline
-                // // is just one point. This is potentially guarunteed by
-                // // the code, but is being proven anecdotally instead of
-                // // logically, if this test always passes.
-                // // It may fail due to floating point imprecisions.
-                // assert_eq!(row.len(), 1, "row: {row:?}"); // Failed 1 time
-                // if row[0].1.len() != 1 {
-                //     assert_eq!(row[0].1.len(), 2, "row: {row:?}"); // Failed 1 time
-                //     assert_eq!(row[0].1[0], row[0].1[1], "row: {row:?}"); // Failed 1 time on:
-                //     //   left: NodeOnEdge { edge: OnEdge { a: 134, b: 102 }, pos: PVec3 { vec: [60.106068, 5.349101, 2.040446] } }
-                //     //  right: NodeOnEdge { edge: OnEdge { a: 134, b: 102 }, pos: PVec3 { vec: [60.106102, 5.349101, 2.0404572] } }
-                // }
-
-                // result[i] = vec![(0.0, vec![row[0].1[0]])];
-                result[i] = vec![(0.0, vec![self.node_into_on_edge(furthest_point)])];
-                continue;
-            };
             for (len, circle) in row {
                 let circle_len = circle.len();
                 if circle_len <= 2 || len < stitch_size * 1.5 {
