@@ -32,7 +32,7 @@ fn fit_plane(x1: &[f32], x2: &[f32], z: &[f32]) -> Result<nalgebra::Matrix<f32, 
     }  // U3 — statically length-3
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, serde::Deserialize)]
 pub struct Measurement {
     relative_size: f32,
     hook_size_mm: f32,

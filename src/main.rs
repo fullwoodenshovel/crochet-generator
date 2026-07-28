@@ -8,6 +8,11 @@ mod process;
 #[cfg(target_arch = "wasm32")]
 mod web_glue;
 
+
+#[cfg(target_arch = "wasm32")]
+use std::{cell::RefCell, sync::Mutex};
+#[cfg(target_arch = "wasm32")]
+use tokio::sync::mpsc::UnboundedSender;
 use viewer::Viewer;
 
 #[cfg(target_arch = "wasm32")]
@@ -15,17 +20,36 @@ use web_glue::push_server_message;
 
 fn main() {
     #[cfg(not(target_arch = "wasm32"))]
-    Viewer::from_default_path().unwrap().run();
+    {
+        let (_sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+        Viewer::from_default_path(receiver).unwrap().run();
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
 fn on_stl_loaded(bytes: Vec<u8>) {
     console_error_panic_hook::set_once();
-    let viewer = Viewer::from_bytes(&bytes).unwrap();
-    push_server_message(&web_glue::ServerMessage::MeshLoaded {
-        vertex_count: viewer.model.mesh.vertices.len() as u32,
-        face_count: viewer.model.mesh.faces.len() as u32,
-    });
 
-    viewer.run();
+    static CHANNELS: Mutex<Option<UnboundedSender<Vec<u8>>>> = Mutex::new(None);
+    
+    let lock = CHANNELS.lock().unwrap() ;
+
+    if let Some(channel) = &*lock {
+        channel.send(bytes);
+    } else {
+        drop(lock);
+
+        let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+        {
+            *CHANNELS.lock().unwrap() = Some(sender);
+        }
+        let viewer = Viewer::from_bytes(&bytes, receiver).unwrap();
+
+        push_server_message(&web_glue::ServerMessage::MeshLoaded {
+            vertex_count: viewer.model.mesh.vertices.len() as u32,
+            face_count: viewer.model.mesh.faces.len() as u32,
+        });
+
+        viewer.run();
+    }
 }

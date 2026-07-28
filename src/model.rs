@@ -40,7 +40,6 @@ impl Model {
         Self::from_read(&mut read)
     }
     
-    #[cfg(target_arch = "wasm32")]
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
         let mut read = std::io::Cursor::new(bytes);
         Self::from_read(&mut read)

@@ -101,9 +101,10 @@ pub fn web_out_next() -> Option<String> {
 // Message schemas — extend these as you add commands/events
 // ---------------------------------------------------------------------
 
-#[derive(serde::Deserialize, Debug)]
+#[derive(serde::Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientMessage {
+    NewMeasurements { measurements: Vec<crate::process::Measurement> }
 }
 
 #[derive(serde::Serialize, Debug)]
@@ -111,5 +112,16 @@ pub enum ClientMessage {
 pub enum ServerMessage {
     MeshLoaded { vertex_count: u32, face_count: u32 },
     Error { message: String },
-    Output{ data: crate::process::Result<crate::process::Output> }
+    Output { data: Result<crate::process::Output, String> }
+}
+
+impl ServerMessage {
+    pub fn output(data: crate::process::Result<crate::process::Output>) -> Self {
+        let data = match data {
+            Ok(data) => Ok(data),
+            Err(err) => Err(err.to_string())
+        };
+
+        Self::Output { data }
+    }
 }

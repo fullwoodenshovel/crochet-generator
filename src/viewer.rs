@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use three_d::*;
-use tokio::sync::mpsc;
+use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 #[cfg(not(target_arch = "wasm32"))]
 use std::thread::JoinHandle;
 use crate::process::{MEASUREMENTS, Output, Sizes};
@@ -48,6 +48,8 @@ pub struct Viewer {
     pub model: Arc<Model>,
 
     window: Window,
+    context: Context,
+    viewport: Viewport,
 
     cam: OrbitCamera,
     debug: DebugRenderer,
@@ -57,11 +59,13 @@ pub struct Viewer {
     directional: DirectionalLight,
 
     mesh: Gm<Mesh, ColorMaterial>,
-    self_sender: mpsc::UnboundedSender<DisplayCommand>,
-    receiver: mpsc::UnboundedReceiver<DisplayCommand>,
+    self_sender: UnboundedSender<DisplayCommand>,
+    receiver: UnboundedReceiver<DisplayCommand>,
     
     processor: ProcessorState,
     sizes: Option<Sizes>,
+
+    stl_channel: UnboundedReceiver<Vec<u8>>
 }
 
 enum ProcessorState {
@@ -80,23 +84,20 @@ impl ProcessorState {
 
 impl Viewer {
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn from_default_path() -> Result<Self> {
+    pub fn from_default_path(stl_channel: UnboundedReceiver<Vec<u8>>) -> Result<Self> {
         let path = "/home/fullw/Documents/Safekeeping/Coding/rust/crochet-generator/src/model.stl";
         let model = Model::from_path(path)?;
 
-        Self::from_model(model)
+        Self::from_model(model, stl_channel)
     }
 
-    #[cfg(target_arch = "wasm32")]
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
+    pub fn from_bytes(bytes: &[u8], stl_channel: UnboundedReceiver<Vec<u8>>) -> Result<Self> {
         let model = Model::from_bytes(bytes)?;
 
-        Self::from_model(model)
+        Self::from_model(model, stl_channel)
     }
 
-    pub fn from_model(model: Model) -> Result<Self> {
-        let (self_sender, receiver) = mpsc::unbounded_channel();
-
+    pub fn from_model(model: Model, stl_channel: UnboundedReceiver<Vec<u8>>) -> Result<Self> {
         // #[cfg(target_arch = "wasm32")]
         // let canvas = {
         //     use wasm_bindgen::JsCast;
@@ -128,6 +129,12 @@ impl Viewer {
         //     ..Default::default()
         // })?;
 
+        Ok(Self::from_model_and_window(model, window, stl_channel))
+    }
+
+    pub fn from_model_and_window(model: Model, window: Window, stl_channel: UnboundedReceiver<Vec<u8>>) -> Self {
+        let (self_sender, receiver) = mpsc::unbounded_channel();
+
         let context = window.gl();
 
         let viewport = window.viewport();
@@ -155,10 +162,12 @@ impl Viewer {
         
         let mesh = Gm::new(gpu_mesh, material);
 
-        Ok(Self {
+        Self {
             model: Arc::new(model),
             window,
+            viewport,
             debug: DebugRenderer::new(&context),
+            context,
             cam,
             gui,
             ambient,
@@ -168,7 +177,8 @@ impl Viewer {
             self_sender,
             processor: ProcessorState::None,
             sizes: None,
-        })
+            stl_channel
+        }
     }
 
     pub fn run(mut self) {
@@ -192,6 +202,43 @@ impl Viewer {
             );
 
             /* ================= DEBUG ================= */
+
+            while let Ok(bytes) = self.stl_channel.try_recv() {
+                let model = match Model::from_bytes(&bytes) {
+                    Ok(model) => model,
+                    Err(err) => {
+                        display_output(Err(crate::process::Error {
+                            issue: err.to_string(),
+                            fault: crate::process::ErrorFault::File,
+                            solution: "Choose a different file.",
+                        }));
+                        continue;
+                    },
+                };
+
+                self.cam = OrbitCamera::new(self.viewport, model.centre, model.radius);
+
+                let cpu_mesh = model.cpu_mesh();
+                let gpu_mesh = Mesh::new(&self.context, &cpu_mesh);
+
+                let mut material = ColorMaterial {
+                    color: Srgba::WHITE,
+                    ..Default::default()
+                };
+
+                material.render_states.cull = Cull::None;
+                
+                self.mesh = Gm::new(gpu_mesh, material);
+
+                self.model = Arc::new(model);
+                self.processor = ProcessorState::None;
+
+                #[cfg(target_arch = "wasm32")]                
+                crate::web_glue::push_server_message(&crate::web_glue::ServerMessage::MeshLoaded {
+                    vertex_count: self.model.mesh.vertices.len() as u32,
+                    face_count: self.model.mesh.faces.len() as u32,
+                });
+            }
 
             while let Ok(command) = self.receiver.try_recv() {
                 match command {
@@ -324,7 +371,7 @@ impl Viewer {
 
 fn display_output(output: OutputResult) {
     #[cfg(target_arch = "wasm32")]
-    crate::push_server_message(&crate::web_glue::ServerMessage::Output{ data: output });
+    crate::push_server_message(&crate::web_glue::ServerMessage::output(output));
     #[cfg(not(target_arch = "wasm32"))]
     println!("{output:?}");
 }
