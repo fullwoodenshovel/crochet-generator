@@ -6,7 +6,7 @@ use three_d::egui::emath::{Float, OrderedFloat};
 
 use crate::process::{Result, assert_internal};
 
-use super::{Node, assert};
+use super::Node;
 
 
 #[derive(Default)]

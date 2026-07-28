@@ -254,7 +254,6 @@ impl Processor {
         };
 
         let mut result = vec![Vec::new(); isolines.len()];
-        let total_isolines = isolines.len();
         for (i, row) in isolines.into_iter().enumerate() {
             for (len, circle) in row {
                 let circle_len = circle.len();

@@ -104,16 +104,12 @@ pub fn web_out_next() -> Option<String> {
 #[derive(serde::Deserialize, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientMessage {
-    SetWireframe { enabled: bool },
-    SetCameraDistance { distance: f32 },
-    ResetCamera,
-    Highlight { face_index: u32 },
 }
 
 #[derive(serde::Serialize, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ServerMessage {
     MeshLoaded { vertex_count: u32, face_count: u32 },
-    ProgressUpdate { percent: f32 },
     Error { message: String },
+    Output{ data: crate::process::Result<crate::process::Output> }
 }

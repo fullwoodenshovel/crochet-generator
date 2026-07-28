@@ -32,6 +32,7 @@ fn fit_plane(x1: &[f32], x2: &[f32], z: &[f32]) -> Result<nalgebra::Matrix<f32, 
     }  // U3 — statically length-3
 }
 
+#[derive(Clone, Copy)]
 pub struct Measurement {
     relative_size: f32,
     hook_size_mm: f32,
@@ -45,7 +46,7 @@ impl Measurement {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct SizesCalculator {
     height_coeffs: (f32, f32, f32),
     width_coeffs: (f32, f32, f32),
@@ -55,9 +56,6 @@ impl SizesCalculator {
     pub fn new(data: &[Measurement], stl_diameter: f32, actual_diameter_cm: f32) -> Result<Self> {
         let mult_factor = stl_diameter / actual_diameter_cm;
 
-        for measurement in data {
-            let Measurement { relative_size, hook_size_mm, measured_width_cm, measured_height_cm } = measurement;
-        }
         let x1 = data.iter().map(|measurement| measurement.relative_size).collect::<Vec<_>>();
         let x2 = data.iter().map(|measurement| measurement.hook_size_mm).collect::<Vec<_>>();
         let z = data.iter().map(|measurement| measurement.measured_height_cm).collect::<Vec<_>>();
@@ -74,14 +72,14 @@ impl SizesCalculator {
         };
 
         let tests = [
-            result.to_stl_units(1.0, 4.0, true),
-            result.to_stl_units(3.0, 4.0, true),
-            result.to_stl_units(1.0, 4.0, false),
-            result.to_stl_units(3.0, 4.0, false),
-            result.to_stl_units(1.0, 9.0, true),
-            result.to_stl_units(3.0, 9.0, true),
-            result.to_stl_units(1.0, 9.0, false),
-            result.to_stl_units(3.0, 9.0, false),
+            result.relative_to_stl(1.0, 4.0, true),
+            result.relative_to_stl(3.0, 4.0, true),
+            result.relative_to_stl(1.0, 4.0, false),
+            result.relative_to_stl(3.0, 4.0, false),
+            result.relative_to_stl(1.0, 9.0, true),
+            result.relative_to_stl(3.0, 9.0, true),
+            result.relative_to_stl(1.0, 9.0, false),
+            result.relative_to_stl(3.0, 9.0, false),
         ];
         assert(
             tests.iter().all(|v| *v > 0.0),
@@ -93,7 +91,9 @@ impl SizesCalculator {
         Ok(result)
     }
 
-    pub fn to_stl_units(&self, relative_size: f32, hook_size_mm: f32, height: bool) -> f32 {
+    //  mult_factor == self.model.radius / divisor / (fit_plane.0 + fit_plane.1 * relative_size + fit_plane.2 * hook_size_mm)
+
+    pub fn relative_to_stl(&self, relative_size: f32, hook_size_mm: f32, height: bool) -> f32 {
         if height {
             self.height_coeffs.0 + self.height_coeffs.1 * relative_size + self.height_coeffs.2 * hook_size_mm
         } else {
@@ -115,10 +115,10 @@ impl FixedHookCalculator {
         };
         
         let tests = [
-            result.to_stl_units(1.0, true),
-            result.to_stl_units(3.0, true),
-            result.to_stl_units(1.0, false),
-            result.to_stl_units(3.0, false),
+            result.relative_to_stl(1.0, true),
+            result.relative_to_stl(3.0, true),
+            result.relative_to_stl(1.0, false),
+            result.relative_to_stl(3.0, false),
         ];
         assert(
             tests.iter().all(|v| *v > 0.0),
@@ -130,7 +130,7 @@ impl FixedHookCalculator {
         Ok(result)
     }
 
-    pub fn to_stl_units(&self, relative_size: f32, height: bool) -> f32 {
+    pub fn relative_to_stl(&self, relative_size: f32, height: bool) -> f32 {
         if height {
             self.height_coeffs.0 + self.height_coeffs.1 * relative_size
         } else {
@@ -138,7 +138,7 @@ impl FixedHookCalculator {
         }
     }
 
-    pub fn from_stl_units(&self, stl_units: f32, height: bool) -> f32 {
+    pub fn stl_to_relative(&self, stl_units: f32, height: bool) -> f32 {
         if height {
             (stl_units - self.height_coeffs.0) / self.height_coeffs.1
         } else {

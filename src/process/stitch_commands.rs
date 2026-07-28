@@ -52,8 +52,8 @@ use StitchCommand as SC;
 
 impl Processor {
     pub fn tree_into_stitches(&self, tree: CircleTree, sizes_calculator: FixedHookCalculator) -> Result<Vec<StitchCommand>> {
-        let scw = sizes_calculator.to_stl_units(1.0, false);
-        let sch = sizes_calculator.to_stl_units(1.0, true);
+        let scw = sizes_calculator.relative_to_stl(1.0, false);
+        let sch = sizes_calculator.relative_to_stl(1.0, true);
         
         let mut result = Vec::new();
         let initial_stitches = (tree.circle_len / scw).round();

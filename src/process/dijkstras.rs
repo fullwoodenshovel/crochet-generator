@@ -25,7 +25,15 @@ impl Processor {
         Ok((frontier.get_output(), final_node.unwrap()))
     }
 
-    pub fn reverse_traverse(&self, info: &GeneratedInfo, position: Vector<f32>, face_index: usize) {
+    pub fn reverse_traverse(&self, position: Vector<f32>, face_index: usize) -> Result<Output> {
+        let info = match &self.info {
+            Some(info) => info,
+            None => return Err(Error {
+                issue: "Cannot reverse traverse until you have generated stitches.".to_string(),
+                fault: ErrorFault::User,
+                solution: "First generate the stitches by left clicking.",
+            }),
+        };
         let GeneratedInfo { nodes, stitch_size: _, epsilon, seed_point, seed_face: _ } = info;
         let v = self.model.mesh.faces[face_index].vertices;
         let mut points = v.map(|i| Node { connectivity: Connectivity::OnVertex(i), pos: self.model.mesh.vertices[i].into() }).to_vec();
@@ -82,6 +90,8 @@ impl Processor {
             depth: true,
             group: Group::ReverseTraverse as usize
         }).unwrap();
+
+        Ok(Output::ReverseTraverse)
     }
 
     /// Find which nodes are connected to which other nodes, for use in Dijkstra's

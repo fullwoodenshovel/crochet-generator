@@ -31,6 +31,7 @@ pub struct Model {
 }
 
 impl Model {
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn from_path(path: &str) -> Result<Self> {
         let file = File::open(path)
             .with_context(|| format!("Couldn't open STL file '{}'", path))?;
@@ -39,6 +40,7 @@ impl Model {
         Self::from_read(&mut read)
     }
     
+    #[cfg(target_arch = "wasm32")]
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
         let mut read = std::io::Cursor::new(bytes);
         Self::from_read(&mut read)
@@ -111,8 +113,7 @@ fn bake_flat_shaded_mesh(mesh: &IndexedMesh) -> CpuMesh {
         let n = (pb - pa).cross(pc - pa).normalize();
 
         // YOUR lighting formula:
-        let brightness = (n.dot(LIGHT_DIR) * 0.45 + 0.55)
-            .sqrt()
+        let brightness = (n.dot(LIGHT_DIR) * 0.4 + 0.55)
             .clamp(0.0, 1.0);
 
         let shade = (brightness * 255.0) as u8;

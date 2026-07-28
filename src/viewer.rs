@@ -5,14 +5,16 @@ use std::sync::Arc;
 use anyhow::Result;
 use three_d::*;
 use tokio::sync::mpsc;
+#[cfg(not(target_arch = "wasm32"))]
 use std::thread::JoinHandle;
-use crate::process::Output;
+use crate::process::{MEASUREMENTS, Output, Sizes};
 use crate::process::{Processor, ProcessorCommand};
 use crate::camera::OrbitCamera;
 use crate::debug::DebugRenderer;
 use crate::model::{LIGHT_DIR, Model};
 
 type V3 = stl_io::Vector<f32>;
+type OutputResult = crate::process::Result<Output>;
 
 pub enum DisplayCommand {
     ClearAll,
@@ -59,14 +61,15 @@ pub struct Viewer {
     receiver: mpsc::UnboundedReceiver<DisplayCommand>,
     
     processor: ProcessorState,
+    sizes: Option<Sizes>,
 }
 
 enum ProcessorState {
     None,
-    Finished(crate::process::Result<Output>, Processor),
+    Finished(OutputResult, Processor),
     Empty(Processor),
     #[cfg(not(target_arch = "wasm32"))]
-    Running(JoinHandle<(crate::process::Result<Output>, Processor)>),
+    Running(JoinHandle<(OutputResult, Processor)>),
 }
 
 impl ProcessorState {
@@ -84,6 +87,7 @@ impl Viewer {
         Self::from_model(model)
     }
 
+    #[cfg(target_arch = "wasm32")]
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
         let model = Model::from_bytes(bytes)?;
 
@@ -93,14 +97,14 @@ impl Viewer {
     pub fn from_model(model: Model) -> Result<Self> {
         let (self_sender, receiver) = mpsc::unbounded_channel();
 
-        #[cfg(target_arch = "wasm32")]
-        let canvas = {
-            use wasm_bindgen::JsCast;
-            web_sys::window().unwrap()
-                .document().unwrap()
-                .get_element_by_id("glcanvas").unwrap()
-                .dyn_into::<web_sys::HtmlCanvasElement>().unwrap()
-        };
+        // #[cfg(target_arch = "wasm32")]
+        // let canvas = {
+        //     use wasm_bindgen::JsCast;
+        //     web_sys::window().unwrap()
+        //         .document().unwrap()
+        //         .get_element_by_id("glcanvas").unwrap()
+        //         .dyn_into::<web_sys::HtmlCanvasElement>().unwrap()
+        // };
 
         #[cfg(target_arch = "wasm32")]
         let (w, h) = {
@@ -163,6 +167,7 @@ impl Viewer {
             receiver,
             self_sender,
             processor: ProcessorState::None,
+            sizes: None,
         })
     }
 
@@ -236,7 +241,28 @@ impl Viewer {
                     let origin = self.cam.camera.position_at_pixel(position);
 
                     if let Some((face, hit)) = pick_triangle(&self.model, origin, dir) {
-                        let command = ProcessorCommand::MouseDownOnPoint { face_index: face, position: V3::new(hit.into()), button };
+                        let command = match button {
+                            MouseButton::Left => ProcessorCommand::Generate {
+                                face_index: face,
+                                position: V3::new(hit.into()),
+                                calculator: match if cfg!(all(not(target_arch = "wasm32"), debug_assertions)) {
+                                    Sizes::RadiusDivisor(13.0)
+                                } else {
+                                    self.sizes.clone().unwrap_or(
+                                        Sizes::Calculator {
+                                            data: MEASUREMENTS.into(),
+                                            actual_diameter_cm: 20.0,
+                                            hook_size_mm: 4.5,
+                                        }
+                                    )
+                                }.fixed_calculator(self.model.radius) {
+                                    Ok(value) => value,
+                                    Err(err) => { display_output(Err(err)); continue; },
+                                }
+                            },
+                            MouseButton::Right => ProcessorCommand::ReverseTraverse { face_index: face, position: V3::new(hit.into()) },
+                            MouseButton::Middle => continue,
+                        };
 
                         self.processor = match self.processor.take() {
                             ProcessorState::None => {
@@ -296,7 +322,10 @@ impl Viewer {
     }
 }
 
-fn display_output(output: crate::process::Result<Output>) {
+fn display_output(output: OutputResult) {
+    #[cfg(target_arch = "wasm32")]
+    crate::push_server_message(&crate::web_glue::ServerMessage::Output{ data: output });
+    #[cfg(not(target_arch = "wasm32"))]
     println!("{output:?}");
 }
 
