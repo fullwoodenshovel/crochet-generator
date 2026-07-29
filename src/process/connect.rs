@@ -47,8 +47,8 @@ impl IndexedCircleTree {
 
 impl Processor {
     pub fn connect(&self, info: &GeneratedInfo, isolines: &[Vec<(f32, Vec<NodeOnEdge>)>], furthest_point: Node) -> Result<CircleTree> {
-        self.sender.send(DisplayCommand::Clear(Group::IsolineConnectors as usize)).unwrap();
-        self.sender.send(DisplayCommand::Clear(Group::IsolinePoints as usize)).unwrap();
+        self.sender.send(DisplayCommand::Clear(Group::IsolineConnectors)).unwrap();
+        self.sender.send(DisplayCommand::Clear(Group::IsolinePoints)).unwrap();
         let GeneratedInfo { nodes, stitch_size, epsilon, seed_point, seed_face } = info;
         let mut map = HashMap::new();
         for (i, isoline) in isolines.iter().enumerate() {
@@ -86,10 +86,10 @@ impl Processor {
                 while let (_geo_len, Some(node)) = nodes.get(closest).unwrap() {
                     let mut intersections = self.find_intersections(&map, node, closest, i + 1)?;
 
-                    if let Some((circle, _)) = intersections.first() {
-                        if let Some((problem, _)) = intersections.iter().find(|v| v.0 != *circle) {
-                            panic!("Circle backtrack intersected more than 1 previous circles simultaneously: {circle:?} and {problem:?}");
-                        }
+                    if let Some((circle, _)) = intersections.first()
+                    && let Some((problem, _)) = intersections.iter().find(|v| v.0 != *circle)
+                    {
+                        panic!("Circle backtrack intersected more than 1 previous circles simultaneously: {circle:?} and {problem:?}");
                     }
 
                     self.sender.send(DisplayCommand::Edge {
@@ -98,7 +98,7 @@ impl Processor {
                         thickness: self.model.radius * 0.02,
                         colour: Srgba::GREEN,
                         depth: true,
-                        group: Group::Backtrack as usize
+                        group: Group::Backtrack
                     }).unwrap();
 
                     if let Some((circle, point)) = intersections.pop() {
@@ -107,7 +107,7 @@ impl Processor {
                             radius: self.model.radius * 0.03,
                             colour: Srgba::RED,
                             depth: true,
-                            group: Group::Backtrack as usize
+                            group: Group::Backtrack
                         }).unwrap();
 
                         indexed_circle_trees.push(IndexedCircle { circle: (i+1, j), prev: Some(circle)});

@@ -87,7 +87,7 @@ impl Processor {
 
                     if mid as usize == utotal_lines { continue; }
                     isoline_points[mid as usize - 1].entry(connectivity).or_insert(Vec::with_capacity(1)).push(prev_pos * ia + pos * ib);
-                    self.sender.send(DisplayCommand::Point { pos: (prev_pos * ia + pos * ib).into(), radius: self.model.radius * 0.025, colour: Srgba::WHITE, depth: true, group: Group::IsolinePoints as usize }).unwrap();
+                    self.sender.send(DisplayCommand::Point { pos: (prev_pos * ia + pos * ib).into(), radius: self.model.radius * 0.025, colour: Srgba::WHITE, depth: true, group: Group::IsolinePoints }).unwrap();
                 }
                 prev_line = line;
                 prev_line_floor = line_floor;
@@ -206,7 +206,7 @@ impl Processor {
                         thickness: self.model.radius * 0.02,
                         colour: Srgba::BLUE,
                         depth: true,
-                        group: Group::IsolineConnectors as usize
+                        group: Group::IsolineConnectors
                     }).unwrap();
                     circle.push(next);
                     next = point;
@@ -220,7 +220,7 @@ impl Processor {
                     thickness: self.model.radius * 0.02,
                     colour: Srgba::BLUE,
                     depth: true,
-                    group: Group::IsolineConnectors as usize
+                    group: Group::IsolineConnectors
                 }).unwrap();
                 result[i].push(circle);
             }
@@ -232,9 +232,9 @@ impl Processor {
     fn prune_isolines(&self, isolines: Vec<Vec<(f32, Vec<NodeOnEdge>)>>, stitch_size: f32, furthest_point: Node) -> Result<Vec<Vec<(f32, Vec<NodeOnEdge>)>>> {
         let draw_edge_point = |a: NodeOnEdge, b: NodeOnEdge, pruned| {
             let (group, edges, points, size) = if pruned {
-                (Group::IsolineConnectors as usize, Srgba::RED, Srgba::RED, 0.01 * self.model.radius)
+                (Group::IsolineConnectors, Srgba::RED, Srgba::RED, 0.01 * self.model.radius)
             } else {
-                (Group::IsolinePruned as usize, Srgba::BLUE, Srgba::WHITE, 0.02 * self.model.radius)
+                (Group::IsolinePruned, Srgba::BLUE, Srgba::WHITE, 0.02 * self.model.radius)
             };
             self.sender.send(DisplayCommand::Edge {
                 a: a.pos.into(),

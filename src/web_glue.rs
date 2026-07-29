@@ -104,7 +104,7 @@ pub fn web_out_next() -> Option<String> {
 #[derive(serde::Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientMessage {
-    NewMeasurements { measurements: Vec<crate::process::Measurement> }
+    Generate { hook_size_mm: f32, diameter_cm: f32, measurements: Vec<crate::process::Measurement> }
 }
 
 #[derive(serde::Serialize, Debug)]

@@ -54,14 +54,14 @@ impl Processor {
         }
 
         let mut closest = closest.unwrap();
-        self.sender.send(DisplayCommand::Clear(Group::ReverseTraverse as usize)).unwrap();
+        self.sender.send(DisplayCommand::Clear(Group::ReverseTraverse)).unwrap();
 
         self.sender.send(DisplayCommand::Point {
             pos: closest.pos.into(),
             radius: self.model.radius * 0.02,
             colour: Srgba { r: 240, g: 240, b: 255, a: 255 },
             depth: true,
-            group: Group::ReverseTraverse as usize
+            group: Group::ReverseTraverse
         }).unwrap();
 
         while let (_geo_len, Some(node)) = nodes.get(&closest).unwrap() {
@@ -71,14 +71,14 @@ impl Processor {
                 thickness: self.model.radius * 0.02,
                 colour: Srgba { r: 245, g: 245, b: 245, a: 255 },
                 depth: true,
-                group: Group::ReverseTraverse as usize
+                group: Group::ReverseTraverse
             }).unwrap();
             self.sender.send(DisplayCommand::Point {
                 pos: node.pos.into(),
                 radius: self.model.radius * 0.02,
                 colour: Srgba { r: 240, g: 240, b: 255, a: 255 },
                 depth: true,
-                group: Group::ReverseTraverse as usize
+                group: Group::ReverseTraverse
             }).unwrap();
             closest = *node;
         }
@@ -88,10 +88,10 @@ impl Processor {
             thickness: self.model.radius * 0.02,
             colour: Srgba { r: 245, g: 245, b: 245, a: 255 },
             depth: true,
-            group: Group::ReverseTraverse as usize
+            group: Group::ReverseTraverse
         }).unwrap();
 
-        Ok(Output::ReverseTraverse)
+        Ok(Output::None)
     }
 
     /// Find which nodes are connected to which other nodes, for use in Dijkstra's

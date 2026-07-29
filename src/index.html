@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
+    <title>STL Upload Demo</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        html, body {
+            height: 100%;
+            overflow: hidden;
+        }
+
+        body {
+            background: #0d0d0d;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+        }
+
+        #app {
+            display: flex;
+            align-items: stretch;
+            gap: 16px;
+            height: 100dvh;
+            padding: 16px;
+        }
+
+        #viewer-panel {
+            position: relative;
+            flex: 1 1 60%;
+            min-width: 0;
+            border: 1px solid #2a2a2a;
+            border-radius: 6px;
+            overflow: visible;
+        }
+
+        #glcanvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        #file-input { display: none; }
+
+        #drop-zone {
+            position: absolute;
+            inset: 0;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #151515;
+            border: 2px dashed #3a3a3a;
+            border-radius: 6px;
+            text-align: center;
+            color: #888;
+            transition: border-color 0.15s ease, color 0.15s ease;
+            cursor: pointer;
+            z-index: 5;
+        }
+
+        #drop-zone.hidden { display: none; }
+
+        #drop-zone.dragover {
+            border-color: #7ecfff;
+            color: #7ecfff;
+        }
+
+        #drop-zone .hint {
+            display: block;
+            font-size: 12px;
+            margin-top: 6px;
+            color: #666;
+        }
+
+        #reopen-btn {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            z-index: 10;
+            background: #222;
+            color: #aaa;
+            border: 1px solid #3a3a3a;
+            border-radius: 4px;
+            padding: 6px 10px;
+            font-family: inherit;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        #reopen-btn:hover { color: #e0e0e0; border-color: #555; }
+        #reopen-btn.hidden { display: none; }
+
+        #side-panel {
+            flex: 1 1 40%;
+            min-width: 280px;
+            max-width: 420px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            min-height: 0;
+        }
+
+        #generate-btn {
+            flex-shrink: 0;
+            padding: 10px 12px;
+            background: #3db8ff;
+            color: #0d0d0d;
+            border: none;
+            border-radius: 4px;
+            font-family: inherit;
+            font-size: 13px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        #generate-btn:hover { background: #9bd9ff; }
+        #generate-btn:active { background: #63b8e8; }
+
+        #settings-panel {
+            flex-shrink: 0;
+            border: 1px solid #2a2a2a;
+            border-radius: 6px;
+            background: #151515;
+            padding: 12px;
+            max-height: 45vh;
+            overflow-y: auto;
+        }
+
+        #settings-general.hidden,
+        #settings-measurements.hidden { display: none; }
+
+        .setting-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+        .setting-row label {
+            color: #aaa;
+            font-size: 12px;
+        }
+        .setting-row input {
+            width: 100px;
+            background: #0d0d0d;
+            border: 1px solid #3a3a3a;
+            border-radius: 4px;
+            color: #e0e0e0;
+            font-family: inherit;
+            font-size: 12px;
+            padding: 4px 6px;
+        }
+        .setting-row input:disabled {
+            color: #666;
+            background: #1a1a1a;
+            border-color: #2a2a2a;
+            cursor: not-allowed;
+        }
+
+        .settings-nav-btn {
+            width: 100%;
+            margin-top: 4px;
+            padding: 8px 10px;
+            background: #222;
+            color: #aaa;
+            border: 1px solid #3a3a3a;
+            border-radius: 4px;
+            font-family: inherit;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        .settings-nav-btn:hover { color: #e0e0e0; border-color: #555; }
+
+        .measurement-header,
+        .measurement-row {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr) 18px;
+            gap: 4px;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+        .measurement-header span {
+            font-size: 10px;
+            color: #666;
+            text-align: center;
+        }
+        .measurement-row input {
+            width: 100%;
+            background: #0d0d0d;
+            border: 1px solid #3a3a3a;
+            border-radius: 4px;
+            color: #e0e0e0;
+            font-family: inherit;
+            font-size: 11px;
+            padding: 3px 4px;
+        }
+        .remove-measurement-btn {
+            background: none;
+            border: none;
+            color: #ff7070;
+            cursor: pointer;
+            font-size: 14px;
+            line-height: 1;
+        }
+
+        #measurements-list { margin-bottom: 8px; }
+
+        #copy-output-btn {
+            flex-shrink: 0;
+            padding: 8px 12px;
+            background: #222;
+            color: #aaa;
+            border: 1px solid #3a3a3a;
+            border-radius: 4px;
+            font-family: inherit;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        #copy-output-btn:disabled {
+            color: #555;
+            border-color: #2a2a2a;
+            cursor: not-allowed;
+        }
+        #copy-output-btn:not(:disabled):hover {
+            color: #e0e0e0;
+            border-color: #555;
+        }
+
+        #console-log {
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            padding: 12px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            border: 1px solid #2a2a2a;
+            border-radius: 6px;
+            background: #151515;
+        }
+
+        .log-input { color: #7ecfff; }
+        .log-input::before { content: '> '; }
+        .log-output { color: #b0f0b0; white-space: pre-wrap; }
+        .log-error  { color: #ff7070; white-space: pre-wrap; }
+        .log-info   { color: #ccc;    white-space: pre-wrap; font-style: italic; }
+
+        #input-row {
+            display: flex;
+            align-items: center;
+            padding: 8px 16px;
+            border-top: 1px solid #2a2a2a;
+            background: #222;
+            gap: 6px;
+            flex-shrink: 0;
+        }
+
+        #input-row::before {
+            content: '>';
+            color: #7ecfff;
+            flex-shrink: 0;
+        }
+
+        #cmd-input {
+            flex: 1;
+            background: transparent;
+            border: none;
+            outline: none;
+            color: #e0e0e0;
+            font-family: inherit;
+            font-size: inherit;
+        }
+    </style>
+</head>
+<body>
+
+<div id="app">
+    <div id="viewer-panel">
+        <canvas id="glcanvas"></canvas>
+        <input type="file" id="file-input" accept=".stl">
+
+        <div id="drop-zone">
+            Drop an .stl file here, or click to browse
+        </div>
+
+        <button id="reopen-btn" class="hidden">Upload a new file</button>
+    </div>
+
+    <div id="side-panel">
+        <button id="generate-btn">Generate pattern</button>
+
+        <div id="settings-panel">
+            <div id="settings-general">
+                <div class="setting-row">
+                    <label for="hook-size-input">Hook size (mm)</label>
+                    <input id="hook-size-input" inputmode="decimal" value="4.5">
+                </div>
+                <div class="setting-row">
+                    <label for="diameter-input">Diameter (cm)</label>
+                    <input id="diameter-input" inputmode="decimal" value="20">
+                </div>
+                <div class="setting-row">
+                    <label for="rows-input">Rows</label>
+                    <input id="rows-input" disabled>
+                </div>
+                <button id="to-measurements-btn" class="settings-nav-btn">Measurements &rarr;</button>
+            </div>
+
+            <div id="settings-measurements" class="hidden">
+                <div class="measurement-header">
+                    <span>size</span>
+                    <span>hook mm</span>
+                    <span>width cm</span>
+                    <span>height cm</span>
+                    <span></span>
+                </div>
+                <div id="measurements-list"></div>
+                <button id="add-measurement-btn" class="settings-nav-btn">+ Add row</button>
+                <button id="defaults-measurement-btn" class="settings-nav-btn">Revert to defaults</button>
+                <button id="to-general-btn" class="settings-nav-btn">&larr; Back to general</button>
+            </div>
+        </div>
+
+        <button id="copy-output-btn" disabled>Copy last output</button>
+        <div id="console-log">
+            <div class="log-info">Idle. No WASM module loaded yet.</div>
+        </div>
+    </div>
+</div>
+
+
+<script type="module">
+    import init, * as wasm from '/pkg/crochet-generator.js';
+
+    let wasmReady = null;
+    function loadWasm() {
+        if (!wasmReady) {
+            wasmReady = init().then(() => {
+                logLine('WASM module ready.', 'log-info');
+                setInterval(pollOutgoing, 16);
+            });
+        }
+        return wasmReady;
+    }
+
+    const logEl               = document.getElementById('console-log');
+    const inputEl             = document.getElementById('cmd-input');
+    const fileInput           = document.getElementById('file-input');
+    const canvas              = document.getElementById("glcanvas");
+    const dropZone            = document.getElementById('drop-zone');
+    const reopenBtn           = document.getElementById('reopen-btn');
+    const copyBtn             = document.getElementById('copy-output-btn');
+    const generateBtn         = document.getElementById('generate-btn');
+    const hookSizeInput       = document.getElementById('hook-size-input');
+    const diameterInput       = document.getElementById('diameter-input');
+    const rowsInput           = document.getElementById('rows-input');
+    const toMeasurementsBtn   = document.getElementById('to-measurements-btn');
+    const toGeneralBtn        = document.getElementById('to-general-btn');
+    const settingsGeneral     = document.getElementById('settings-general');
+    const settingsMeasurements = document.getElementById('settings-measurements');
+    const measurementsList    = document.getElementById('measurements-list');
+    const addMeasurementBtn   = document.getElementById('add-measurement-btn');
+    const revertToDefaults    = document.getElementById('defaults-measurement-btn');
+
+    function resizeCanvas() {
+        const rect = canvas.getBoundingClientRect();
+        canvas.width = Math.round(rect.width * devicePixelRatio);
+        canvas.height = Math.round(rect.height * devicePixelRatio);
+    }
+
+    resizeCanvas();
+    window.addEventListener("resize", resizeCanvas);
+
+
+    function logLine(text, cls) {
+        const div = document.createElement('div');
+        div.className = cls;
+        div.textContent = text;
+        logEl.appendChild(div);
+        logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    // ---------------------------------------------------------------
+    // STL upload -> stl_alloc / stl_load
+    // ---------------------------------------------------------------
+    function sendStlToWasm(bytes) {
+        try {
+            wasm.stl_load(bytes);
+            logLine(`Sent ${bytes.length} bytes to renderer`, 'log-output');
+        } catch (err) {
+            const msg = String(err && err.message || err);
+            if (msg.includes("Using exceptions for control flow")) {
+                logLine('Renderer running.', 'log-output');
+                return;
+            }
+            logLine('Error sending file to WASM: ' + msg, 'log-error');
+        }
+    }
+
+    async function handleFile(file) {
+        if (!file) return;
+        if (!file.name.toLowerCase().endsWith('.stl')) {
+            logLine(`"${file.name}" doesn't look like an .stl file`, 'log-error');
+            return;
+        }
+        logLine(`Reading ${file.name} (${file.size} bytes)...`, 'log-info');
+        let bytes;
+        try {
+            bytes = new Uint8Array(await file.arrayBuffer());
+        } catch (err) {
+            logLine('Failed to read file: ' + err.message, 'log-error');
+            return;
+        }
+        await loadWasm();
+        sendStlToWasm(bytes);
+    }
+
+    dropZone.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', (e) => handleFile(e.target.files[0]));
+
+    ['dragenter', 'dragover'].forEach(evt =>
+        dropZone.addEventListener(evt, (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        })
+    );
+    ['dragleave', 'drop'].forEach(evt =>
+        dropZone.addEventListener(evt, (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+        })
+    );
+    dropZone.addEventListener('drop', (e) => handleFile(e.dataTransfer.files[0]));
+
+    // ---------------------------------------------------------------
+    // JSON command channel -> json_alloc / json_submit
+    // ---------------------------------------------------------------
+    async function sendJsonToWasm(obj) {
+        await loadWasm();
+        wasm.json_submit(JSON.stringify(obj));
+    }
+
+    if (inputEl) {
+        inputEl.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter' || !inputEl.value.trim()) return;
+            const raw = inputEl.value;
+            logLine(raw, 'log-input');
+            try {
+                const obj = JSON.parse(raw);
+                sendJsonToWasm(obj);
+            } catch (err) {
+                logLine('Not valid JSON: ' + err.message, 'log-error');
+            }
+            inputEl.value = '';
+        });
+    }
+
+    // ---------------------------------------------------------------
+    // Viewer <-> drop-zone state. The canvas itself is never removed —
+    // wasm/windowing owns it — we just cover/uncover it.
+    // ---------------------------------------------------------------
+    function showDropZone() {
+        dropZone.classList.remove('hidden');
+        reopenBtn.classList.add('hidden');
+    }
+    function hideDropZone() {
+        dropZone.classList.add('hidden');
+        reopenBtn.classList.remove('hidden');
+    }
+
+    reopenBtn.addEventListener('click', showDropZone);
+
+    // ---------------------------------------------------------------
+    // Settings panel: General <-> Measurements
+    // ---------------------------------------------------------------
+    toMeasurementsBtn.addEventListener('click', () => {
+        settingsGeneral.classList.add('hidden');
+        settingsMeasurements.classList.remove('hidden');
+    });
+    toGeneralBtn.addEventListener('click', () => {
+        settingsMeasurements.classList.add('hidden');
+        settingsGeneral.classList.remove('hidden');
+    });
+
+
+    function average(a, b) {
+        return (a + b) / 2
+    }
+
+    // ---------------------------------------------------------------
+    // Measurements list — mirrors the Rust `Measurement` struct fields
+    // exactly: relative_size, hook_size_mm, measured_width_cm,
+    // measured_height_cm. You populate this list yourself.
+    // ---------------------------------------------------------------
+    let default_measurements = [
+        {relative_size: 1.0, hook_size_mm: average(4.0, 4.5), measured_width_cm: .652444, measured_height_cm: 0.68469113},
+        {relative_size: 1.0, hook_size_mm: average(5.5, 7.0), measured_width_cm: .832444, measured_height_cm: 0.97358},
+        {relative_size: 1.0, hook_size_mm: 9.0, measured_width_cm: 1.052444, measured_height_cm: 1.1513578},
+        {relative_size: 2.0, hook_size_mm: average(4.0, 4.5), measured_width_cm: .782444, measured_height_cm: 1.532444},
+        {relative_size: 2.0, hook_size_mm: average(5.5, 7.0), measured_width_cm: .8703576, measured_height_cm: 1.94716},
+        {relative_size: 3.0, hook_size_mm: average(4.0, 4.5), measured_width_cm: .7476764, measured_height_cm: 2.240555},
+        {relative_size: 3.0, hook_size_mm: average(5.5, 7.0), measured_width_cm: .90827113, measured_height_cm: 2.92074},
+    ];
+
+    let measurements = structuredClone(default_measurements);
+
+    function renderMeasurements() {
+        measurementsList.innerHTML = '';
+        measurements.forEach((m, i) => {
+            const row = document.createElement('div');
+            row.className = 'measurement-row';
+            row.innerHTML = `
+                <input inputmode="decimal" value="${m.relative_size}" data-field="relative_size" data-index="${i}">
+                <input inputmode="decimal" value="${m.hook_size_mm}" data-field="hook_size_mm" data-index="${i}">
+                <input inputmode="decimal" value="${m.measured_width_cm}" data-field="measured_width_cm" data-index="${i}">
+                <input inputmode="decimal" value="${m.measured_height_cm}" data-field="measured_height_cm" data-index="${i}">
+                <button class="remove-measurement-btn" data-index="${i}" aria-label="Remove row">&times;</button>
+            `;
+            measurementsList.appendChild(row);
+        });
+    }
+
+    measurementsList.addEventListener('input', (e) => {
+        const field = e.target.dataset.field;
+        const index = e.target.dataset.index;
+        if (field === undefined) return;
+        e.target.value = sanitizeFloatValue(e.target.value);
+        measurements[index][field] = parseFloat(e.target.value) || 0;
+    });
+
+    function sanitizeFloatValue(v) {
+        v = v.replace(/[^0-9.-]/g, '');
+        v = v.charAt(0) === '-' ? '-' + v.slice(1).replace(/-/g, '') : v.replace(/-/g, '');
+        const parts = v.split('.');
+        if (parts.length > 2) v = parts[0] + '.' + parts.slice(1).join('');
+        return v;
+    }
+
+    [hookSizeInput, diameterInput].forEach((el) => {
+        el.addEventListener('input', () => {
+            el.value = sanitizeFloatValue(el.value);
+        });
+    });
+
+    measurementsList.addEventListener('click', (e) => {
+        if (!e.target.classList.contains('remove-measurement-btn')) return;
+        const index = Number(e.target.dataset.index);
+        measurements.splice(index, 1);
+        renderMeasurements();
+    });
+
+    addMeasurementBtn.addEventListener('click', () => {
+        measurements.push({ relative_size: 1, hook_size_mm: 4.5, measured_width_cm: 0, measured_height_cm: 0 });
+        renderMeasurements();
+    });
+
+    revertToDefaults.addEventListener('click', () => {
+        measurements = structuredClone(default_measurements);
+        renderMeasurements();
+    });
+
+    renderMeasurements();
+
+    function nextPaint() {
+        return new Promise((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(resolve));
+        });
+    }
+
+    // ---------------------------------------------------------------
+    // Generate pattern button
+    // ---------------------------------------------------------------
+    generateBtn.addEventListener('click', async () => {
+        setGenerating(true);
+        await loadWasm();
+        await nextPaint();
+        // TODO: swap "type" and payload shape to match your actual
+        // ClientMessage variant for triggering generation — the only
+        // variant defined so far is NewMeasurements.
+        sendJsonToWasm({
+            type: 'generate',
+            hook_size_mm: parseFloat(hookSizeInput.value) || 6,
+            diameter_cm: parseFloat(diameterInput.value) || 15,
+            measurements,
+        });
+    });
+
+    // Call this from wherever your program reports the computed row
+    // count (e.g. a new ServerMessage variant, or inside 'output').
+    function setRows(n) {
+        rowsInput.value = n;
+    }
+    
+    function setGenerating(isGenerating) {
+        generateBtn.disabled = isGenerating;
+        generateBtn.textContent = isGenerating ? 'Generating...' : 'Generate pattern';
+    }
+
+    // ---------------------------------------------------------------
+    // Outgoing messages -> web_out_len / web_out_ptr / web_out_pop
+    // ---------------------------------------------------------------
+    function handleServerMessage(msg) {
+        switch (msg.type) {
+            case 'mesh_loaded':
+                logLine(`Mesh loaded: ${msg.vertex_count} verts, ${msg.face_count} faces`, 'log-output');
+                hideDropZone();
+                break;
+            case 'error':
+                logLine('Error: ' + msg.message, 'log-error');
+                break;
+            case 'output':
+                let data = msg.data;
+                if (data.Ok === undefined) {
+                    logLine('Error:\n' + data.Err, 'log-error');
+                    clearLastOutput();
+                } else if (data.Ok == null) {
+                    logLine('Success', 'log-output');
+                    clearLastOutput();
+                } else {
+                    logLine('Pattern generated:\n' + data.Ok, 'log-output');
+                    setLastOutput(data.Ok);
+                }
+                setGenerating(false);
+                break;
+            default:
+                logLine('Unhandled message: ' + JSON.stringify(msg), 'log-info');
+        }
+    }
+
+    function pollOutgoing() {
+        if (!wasm || !wasm.web_out_next) return;
+        const raw = wasm.web_out_next();
+        if (raw) {
+            let json = null;
+            try {
+                json = JSON.parse(raw);
+            } catch (err) {
+                logLine('Bad JSON from renderer: ' + raw, 'log-error');
+            };
+            if (json != null) {
+                handleServerMessage(json);
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // Copy-last-output button: enabled only while there's a pattern
+    // string to copy; grayed out (disabled) otherwise.
+    // ---------------------------------------------------------------
+    let lastOutput = null;
+
+    function setLastOutput(text) {
+        lastOutput = text;
+        copyBtn.disabled = false;
+    }
+    function clearLastOutput() {
+        lastOutput = null;
+        copyBtn.disabled = true;
+    }
+
+    copyBtn.addEventListener('click', async () => {
+        if (!lastOutput) return;
+        try {
+            await navigator.clipboard.writeText(lastOutput);
+            logLine('Copied last output to clipboard', 'log-info');
+        } catch (err) {
+            logLine('Clipboard copy failed: ' + err.message, 'log-error');
+        }
+    });
+</script>
+</body>
+</html>

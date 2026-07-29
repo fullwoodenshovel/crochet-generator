@@ -124,7 +124,7 @@ pub enum ProcessorCommand {
 
 
 #[derive(Clone, Copy)]
-enum Group {
+pub enum Group {
     Seed,
     Dijkstras,
     IsolinePoints,
@@ -146,7 +146,6 @@ struct GeneratedInfo {
 pub enum Output {
     None,
     StitchCommands(String),
-    ReverseTraverse
 }
 
 #[derive(Clone)]
@@ -204,7 +203,7 @@ impl Processor {
         let stitch_size = calculator.relative_to_stl(1.0, true);
 
         self.sender.send(DisplayCommand::ClearAll).unwrap();
-        self.sender.send(DisplayCommand::Point { pos: position, radius: self.model.radius * 0.02, colour: Srgba::BLUE, depth: true, group: Group::Seed as usize }).unwrap();
+        self.sender.send(DisplayCommand::Point { pos: position, radius: self.model.radius * 0.02, colour: Srgba::BLUE, depth: true, group: Group::Seed }).unwrap();
         let epsilon = stitch_size * STITCH_SIZE_EPSILON_MULTIPLIER;
         let (nodes, furthest_point) = self.dijkstras(epsilon, position.into(), face_index)?;
         let furthest_len = nodes.get(&furthest_point).unwrap().0;
@@ -218,7 +217,7 @@ impl Processor {
                     radius: self.model.radius * 0.007,
                     colour: hsv(3.0 * geo_len / furthest_len, 1.0, 1.0),
                     depth: true,
-                    group: Group::Dijkstras as usize
+                    group: Group::Dijkstras
                     
                 }).unwrap()
             }
