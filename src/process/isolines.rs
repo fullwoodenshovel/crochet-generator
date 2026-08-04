@@ -6,6 +6,8 @@ use three_d::egui::emath::Float;
 
 use super::*;
 
+pub type IsolinesVec = Vec<Vec<(f32, Vec<NodeOnEdge>)>>;
+
 impl Processor {
     /// The output of this function is a list of all isolines, connected in a circle, e.g.
     /// ```
@@ -20,16 +22,16 @@ impl Processor {
     ///     ]
     /// ]
     /// ```
-    pub fn isolines(&self, nodes: &HashMap<Node, (f32, Option<Node>)>, furthest_len: f32, furthest_point: Node, stitch_size: f32, epsilon: f32) -> Result<(Vec<Vec<(f32, Vec<NodeOnEdge>)>>, Node)> {
+    pub fn isolines(&self, nodes: &HashMap<Node, (f32, Option<Node>)>, furthest_len: f32, furthest_point: Node, stitch_size: f32, epsilon: f32) -> Result<(IsolinesVec, Node)> {
         let (points, furthest_point) = self.get_isoline_points(nodes, furthest_len, furthest_point, stitch_size, epsilon)?;
         let faces = self.connect_isoline_faces(points)?;
         let isolines = self.connect_isoline_points(faces)?;
-        let isolines_lens: Vec<Vec<(f32, Vec<NodeOnEdge>)>> = isolines.into_iter().map(|row|
+        let isolines_lens: IsolinesVec = isolines.into_iter().map(|row|
             row.into_iter().map(|circle|
                 (get_circle_len(&circle), circle)
             ).collect()
         ).collect();
-        let result = self.prune_isolines(isolines_lens, stitch_size, furthest_point)?;
+        let result = self.prune_isolines(isolines_lens, stitch_size )?;
         Ok((result, furthest_point))
     }
 
@@ -102,7 +104,7 @@ impl Processor {
         for (row, isoline) in points.into_iter().enumerate() {
             let mut faces = HashSet::new();
             for key in isoline.keys() {
-                let [a, b] = self.faces(*key)?;
+                let [a, b] = self.faces_connected_to_edge(*key)?;
                 faces.insert(a);
                 faces.insert(b);
             }
@@ -229,13 +231,21 @@ impl Processor {
         Ok(result)
     }
 
-    fn prune_isolines(&self, isolines: Vec<Vec<(f32, Vec<NodeOnEdge>)>>, stitch_size: f32, furthest_point: Node) -> Result<Vec<Vec<(f32, Vec<NodeOnEdge>)>>> {
+    fn prune_isolines(&self, isolines: IsolinesVec, stitch_size: f32) -> Result<IsolinesVec> {
         let draw_edge_point = |a: NodeOnEdge, b: NodeOnEdge, pruned| {
             let (group, edges, points, size) = if pruned {
                 (Group::IsolineConnectors, Srgba::RED, Srgba::RED, 0.01 * self.model.radius)
             } else {
                 (Group::IsolinePruned, Srgba::BLUE, Srgba::WHITE, 0.02 * self.model.radius)
             };
+            self.sender.send(DisplayCommand::Edge {
+                a: b.pos.into(),
+                b: ((a.pos + b.pos) / 2.0).into(),
+                thickness: self.model.radius * 0.002 + size,
+                colour: Srgba { r: 200, g: 255, b: 255, a: 255 },
+                depth: !pruned,
+                group
+            }).unwrap();
             self.sender.send(DisplayCommand::Edge {
                 a: a.pos.into(),
                 b: b.pos.into(),
@@ -267,6 +277,16 @@ impl Processor {
                 for i in 0..circle_len {
                     draw_edge_point(circle[i], circle[(i + 1) % circle_len], false);
                 }
+
+
+                self.sender.send(DisplayCommand::Edge {
+                    a: circle[0].pos.into(),
+                    b: circle[circle.len() - 1].pos.into(),
+                    thickness: 0.024 * self.model.radius,
+                    colour: Srgba { r: 255, g: 20, b: 255, a: 255 },
+                    depth: true,
+                    group: Group::IsolinePruned
+                }).unwrap();
 
                 result[i].push((len, circle));
             }
@@ -310,7 +330,7 @@ impl Processor {
         Ok(faces1.pop().unwrap())
     }
 
-    fn faces(&self, edge: OnEdge) -> Result<[usize; 2]> {
+    pub(super) fn faces_connected_to_edge(&self, edge: OnEdge) -> Result<[usize; 2]> {
         let v1 = edge.a;
         let v2 = edge.b;
         let mut faces1 = self.vertex_to_faces[v1].clone();
@@ -341,12 +361,28 @@ impl OnEdge {
         };
         Self { a, b }
     }
+
+    pub fn matching_vertex(&self, other: &Self) -> Option<usize> {
+        if self.a == other.a || self.a == other.b {
+            Some(self.a)
+        } else if self.b == other.a || self.b == other.b {
+            Some(self.b)
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct NodeOnEdge {
     pub edge: OnEdge,
     pub pos: PVec3,
+}
+
+impl NodeOnEdge {
+    pub fn matching_vertex(&self, other: &Self) -> Option<usize> {
+        self.edge.matching_vertex(&other.edge)
+    }
 }
 
 fn get_circle_len(circle: &[NodeOnEdge]) -> f32 {

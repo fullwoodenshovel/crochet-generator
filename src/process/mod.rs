@@ -17,7 +17,7 @@ mod stitch_commands;
 mod sizes_calculator;
 pub use sizes_calculator::{Measurement, SizesCalculator, FixedHookCalculator, MEASUREMENTS};
 
-use crate::{model::Model, process::{isolines::OnEdge}, viewer::DisplayCommand};
+use crate::{model::Model, process::isolines::{IsolinesVec, OnEdge}, viewer::DisplayCommand};
 use std::result::Result as StdResult;
 
 pub type Result<T> = StdResult<T, Error>;
@@ -68,11 +68,15 @@ fn assert_internal<const ERROR_NUM: u8>(assertion: bool, debug: Option<String>) 
     if assertion {
         Result::Ok(())
     } else {
-        Result::Err(Error {
-            issue: format!("Internal Error #{ERROR_NUM:0>3}"),
-            fault: ErrorFault::Code(debug),
-            solution: "Try again, or try moving the seed point slightly.",
-        })
+        Err(failed_assert_internal::<ERROR_NUM>(debug))
+    }
+}
+
+fn failed_assert_internal<const ERROR_NUM: u8>(debug: Option<String>) -> Error {
+    Error {
+        issue: format!("Internal Error #{ERROR_NUM:0>3}"),
+        fault: ErrorFault::Code(debug),
+        solution: "Try again, or try moving the seed point slightly.",
     }
 }
 
@@ -131,15 +135,19 @@ pub enum Group {
     IsolineConnectors,
     IsolinePruned,
     ReverseTraverse,
-    Backtrack
+    Backtrack,
+    Seam,
+    Stitch,
 }
 
 struct GeneratedInfo {
+    /// Hashmap with some node, the geo-length to it from the seed point, and its potential predecessor.
     nodes: HashMap<Node, (f32, Option<Node>)>,
     stitch_size: f32,
     epsilon: f32,
     seed_point: PVec3,
     seed_face: usize,
+    isolines: IsolinesVec,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -224,14 +232,16 @@ impl Processor {
         
         let (isolines, furthest_point) = self.isolines(&nodes, furthest_len, furthest_point, stitch_size, stitch_size * STITCH_SIZE_EPSILON_MULTIPLIER)?;
 
-        let info = GeneratedInfo { nodes, stitch_size, epsilon, seed_point: position.into(), seed_face: face_index };
+        self.info = Some(GeneratedInfo { nodes, stitch_size, epsilon, seed_point: position.into(), seed_face: face_index, isolines });
+        let isolines = &self.info.as_ref().unwrap().isolines;
 
-        let tree = self.connect(&info, &isolines, furthest_point)?;
-        let stitches = self.tree_into_stitches(tree, calculator);
-        self.info = Some(info);
+        let map = self.get_isoline_map(isolines);
+        let tree = self.connect(&map, isolines)?;
+        let stitches = self.tree_into_stitches(tree, calculator, &map)?;
         Ok(Output::None)
     }
 
+    /// Takes verticies as inputs
     fn get_connected_faces(&self, v1: usize, v2: usize) -> Vec<usize> {
         let mut faces1 = self.vertex_to_faces[v1].clone();
         let faces2 = &self.vertex_to_faces[v2];
@@ -252,6 +262,11 @@ impl Processor {
             },
             Connectivity::OnEdge(a, b) => NodeOnEdge { edge: OnEdge { a, b }, pos: node.pos },
         }
+    }
+
+    /// Unwraps self.info with error message
+    fn get_info_unwrapped(&self) -> &GeneratedInfo {
+        self.info.as_ref().expect("This function should only be called after self.info has been set.")
     }
 }
 

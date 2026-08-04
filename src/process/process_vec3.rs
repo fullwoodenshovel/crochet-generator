@@ -15,7 +15,7 @@ impl Add for PVec3 {
 
     fn add(self, rhs: Self) -> Self::Output {
         Self {
-            vec: [self.vec[0] + rhs.vec[0], self.vec[1] + rhs.vec[1], self.vec[2] + rhs.vec[2]]
+            vec: [self.x() + rhs.vec[0], self.y() + rhs.vec[1], self.z() + rhs.vec[2]]
         }
     }
 }
@@ -26,7 +26,7 @@ impl Sub for PVec3 {
     fn sub(self, rhs: Self) -> Self::Output {
         
         Self {
-            vec: [self.vec[0] - rhs.vec[0], self.vec[1] - rhs.vec[1], self.vec[2] - rhs.vec[2]]
+            vec: [self.x() - rhs.vec[0], self.y() - rhs.vec[1], self.z() - rhs.vec[2]]
         }
     }
 }
@@ -36,7 +36,7 @@ impl Mul<f32> for PVec3 {
 
     fn mul(self, rhs: f32) -> Self::Output {
         Self {
-            vec: [self.vec[0] * rhs, self.vec[1] * rhs, self.vec[2] * rhs]
+            vec: [self.x() * rhs, self.y() * rhs, self.z() * rhs]
         }
     }
 }
@@ -80,13 +80,36 @@ impl PVec3 {
     }
 
     pub fn magnitude_squared(self) -> f32 {
-        self.vec[0] * self.vec[0] + self.vec[1] * self.vec[1] + self.vec[2] * self.vec[2]
+        self.x() * self.x() + self.y() * self.y() + self.z() * self.z()
     }
 
     pub fn dot(self, other: Self) -> f32 {
-        self.vec[0] * other.vec[0] +
-        self.vec[1] * other.vec[1] +
-        self.vec[2] * other.vec[2]
+        self.x() * other.x() +
+        self.y() * other.y() +
+        self.z() * other.z()
+    }
+
+    #[inline(always)]
+    pub fn x(&self) -> f32 {
+        self.vec[0]
+    }
+
+    #[inline(always)]
+    pub fn y(&self) -> f32 {
+        self.vec[1]
+    }
+
+    #[inline(always)]
+    pub fn z(&self) -> f32 {
+        self.vec[2]
+    }
+
+    pub fn cross(self, other: Self) -> Self {
+        Self { vec: [
+            self.y() * other.z() - self.z() * other.y(),
+            self.z() * other.x() - self.x() * other.z(),
+            self.x() * other.y() - self.y() * other.x()
+        ] }
     }
 }
 
@@ -122,17 +145,17 @@ use std::cmp::Ordering;
 
 impl Ord for PVec3 {
     fn cmp(&self, other: &Self) -> Ordering {
-        match self.vec[0].total_cmp(&other.vec[0]) {
+        match self.x().total_cmp(&other.x()) {
             Ordering::Less => return Ordering::Less,
             Ordering::Greater => return Ordering::Greater,
             Ordering::Equal => (),
         }
-        match self.vec[1].total_cmp(&other.vec[1]) {
+        match self.y().total_cmp(&other.y()) {
             Ordering::Less => return Ordering::Less,
             Ordering::Greater => return Ordering::Greater,
             Ordering::Equal => (),
         }
-        self.vec[2].total_cmp(&other.vec[2])
+        self.z().total_cmp(&other.z())
     }
 }
 

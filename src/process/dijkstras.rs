@@ -26,24 +26,27 @@ impl Processor {
     }
 
     pub fn reverse_traverse(&self, position: Vector<f32>, face_index: usize) -> Result<Output> {
-        let info = match &self.info {
-            Some(info) => info,
-            None => return Err(Error {
+        let Some(info) = &self.info else {
+            return Err(Error {
                 issue: "Cannot reverse traverse until you have generated stitches.".to_string(),
                 fault: ErrorFault::User,
                 solution: "First generate the stitches by left clicking.",
-            }),
+            })
         };
-        let GeneratedInfo { nodes, stitch_size: _, epsilon, seed_point, seed_face: _ } = info;
+
+        let nodes = &info.nodes;
+        let epsilon = &info.epsilon;
+        let seed_point = &info.seed_point;
+        
         let v = self.model.mesh.faces[face_index].vertices;
         let mut points = v.map(|i| Node { connectivity: Connectivity::OnVertex(i), pos: self.model.mesh.vertices[i].into() }).to_vec();
         for [a, b] in [[v[0], v[1]], [v[1], v[2]], [v[2], v[0]]] {
             points.append(&mut self.spaced_points(a, b, *epsilon).into_iter().map(|pos| Node { connectivity: Connectivity::on_edge(a, b), pos}).collect());
         }
-
+        
         let mut closest = None;
         let mut distance = f32::INFINITY;
-
+        
         for point in points {
             let pos = point.pos;
             let d = (pos - position.into()).magnitude();
@@ -52,10 +55,10 @@ impl Processor {
                 closest = Some(point);
             }
         }
-
+        
         let mut closest = closest.unwrap();
         self.sender.send(DisplayCommand::Clear(Group::ReverseTraverse)).unwrap();
-
+        
         self.sender.send(DisplayCommand::Point {
             pos: closest.pos.into(),
             radius: self.model.radius * 0.02,
@@ -64,7 +67,30 @@ impl Processor {
             group: Group::ReverseTraverse
         }).unwrap();
 
+        let isolines = &info.isolines;
+        let map = self.get_isoline_map(isolines);
+        
         while let (_geo_len, Some(node)) = nodes.get(&closest).unwrap() {
+            let intersections = self.find_intersections(&map, node, &closest, None)?;
+            for ((i, j), (p1, _), poss) in intersections {
+                match poss {
+                    Some((p2, _)) => self.sender.send(DisplayCommand::Edge {
+                        a: p1.pos.into(),
+                        b: p2.pos.into(),
+                        thickness: self.model.radius * 0.03,
+                        colour: Srgba::GREEN,
+                        depth: true,
+                        group: Group::ReverseTraverse,
+                    }).unwrap(),
+                    None => self.sender.send(DisplayCommand::Point {
+                        pos: p1.pos.into(),
+                        radius: self.model.radius * 0.03,
+                        colour: Srgba::GREEN,
+                        depth: true,
+                        group: Group::ReverseTraverse,
+                    }).unwrap(),
+                }
+            }
             self.sender.send(DisplayCommand::Edge {
                 a: closest.pos.into(),
                 b: node.pos.into(),
@@ -131,6 +157,7 @@ impl Processor {
         result
     }
 
+    /// This is guarunteed to return at least 3 nodes
     pub fn get_nodes_connected_to_face(&self, face_index: usize, epsilon: f32) -> Vec<Node> {
         // Find the verticies that lie on these faces
         let verticies = self.model.mesh.faces[face_index].vertices;
@@ -194,5 +221,80 @@ impl Processor {
         nodes.push(node_a);
         nodes.push(node_b);
         nodes
+    }
+
+    /// Takes in a point on a face, and returns the geo-length and previous node.
+    /// This returns None if the point is on the same face as the seed point.
+    /// # Panics
+    /// Panics if self.info is None
+    pub fn get_face_point_rev_trav(&self, pos: PVec3, face: usize) -> (f32, Option<Node>) {
+        let info = self.get_info_unwrapped();
+        let nodes = &info.nodes;
+        let epsilon = &info.epsilon;
+        let seed_point = &info.seed_point;
+        let seed_face = &info.seed_face;
+
+        let mut connected_nodes = self.get_nodes_connected_to_face(face, *epsilon);
+
+        if face == *seed_face {
+            return ((*seed_point - pos).magnitude(), None)
+        }
+
+        let first = connected_nodes.pop().unwrap();
+        let mut min_geo = (first.pos - pos).magnitude() + nodes.get(&first).unwrap().0;
+        let mut min_node = first;
+
+        for node in connected_nodes {
+            let len = (node.pos - pos).magnitude() + nodes.get(&node).unwrap().0;
+            if len < min_geo {
+                min_geo = len;
+                min_node = node;
+            }
+        }
+
+        (min_geo, Some(min_node))
+    }
+
+    /// Takes in a NodeOnEdge, and returns the geo-length and previous node.
+    /// This returns None if the point is on the same face as the seed point.
+    /// # Panics
+    /// Panics if self.info is None
+    pub fn get_on_edge_rev_trav(&self, on_edge: NodeOnEdge) -> Result<(f32, Option<Node>)> {
+        let info = self.get_info_unwrapped();
+        let nodes = &info.nodes;
+        let epsilon = &info.epsilon;
+        let seed_point = &info.seed_point;
+        let seed_face = &info.seed_face;
+        let pos = on_edge.pos;
+
+        let mut faces = self.get_connected_faces(on_edge.edge.a, on_edge.edge.b);
+        assert(
+            faces.len() == 2,
+            "The STL file is not watertight",
+            "Chose a different, watertight STL file",
+            ErrorFault::File
+        )?;
+        let face1 = faces.pop().unwrap();
+        let face2 = faces.pop().unwrap();
+        let mut connected_nodes = self.get_nodes_connected_to_face(face1, *epsilon);
+        connected_nodes.append(&mut self.get_nodes_connected_to_face(face2, *epsilon));
+
+        if face1 == *seed_face || face2 == *seed_face {
+            return Ok(((*seed_point - pos).magnitude(), None))
+        }
+
+        let first = connected_nodes.pop().unwrap();
+        let mut min_geo = (first.pos - pos).magnitude() + nodes.get(&first).unwrap().0;
+        let mut min_node = first;
+
+        for node in connected_nodes {
+            let len = (node.pos - pos).magnitude() + nodes.get(&node).unwrap().0;
+            if len < min_geo {
+                min_geo = len;
+                min_node = node;
+            }
+        }
+
+        Ok((min_geo, Some(min_node)))
     }
 }

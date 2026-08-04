@@ -398,7 +398,7 @@ fn generate_command(sizes: Option<Sizes>, radius: f32, face_index: usize, hit: V
         face_index,
         position: V3::new(hit.into()),
         calculator: match if cfg!(all(not(target_arch = "wasm32"), debug_assertions)) {
-            Sizes::RadiusDivisor(7.0)
+            Sizes::RadiusDivisor(5.0)
         } else {
             sizes.unwrap_or(
                 Sizes::Calculator {
