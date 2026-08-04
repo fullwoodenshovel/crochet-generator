@@ -136,6 +136,29 @@ impl Processor {
             isoline_index: 0,
             pos: curr.circle[0].pos,
         };
+        let mut curr_spaced_point_index = 0;
+
+        let spaced_points = |circle_len: f32, start_point: StitchPoint, circle: &[NodeOnEdge], direction_flag: bool| -> Result<Vec<StitchPoint>> {
+            let curr_stitches = (circle_len / scw).round() as usize;
+            let curr_scw = circle_len / curr_stitches as f32;
+            let curr_scw = if direction_flag { -curr_scw } else { curr_scw };
+            let mut result = Vec::with_capacity(curr_stitches);
+            let mut curr_stitch = start_point;
+            result.push(curr_stitch);
+            for _ in 0..curr_stitches-1 {
+                curr_stitch = self.move_on_circle(circle, curr_stitch.isoline_index, curr_stitch.pos, curr_scw)?;
+                result.push(curr_stitch);
+            }
+
+            for stitch in &result {
+                let pos = stitch.pos.into();
+                self.sender.send(DisplayCommand::Point { pos, radius: self.model.radius * 0.035, colour: Srgba::RED, depth: false, group: Group::Stitch }).unwrap();
+                std::thread::sleep(std::time::Duration::from_secs_f32(0.3));
+            }
+            Ok(result)
+        };
+
+        let mut curr_spaced_points = spaced_points(curr.circle_len, curr_point, &curr.circle, false)?;
 
         while let Some(next) = curr.children.pop() {
             if curr.children.len() > 1 {
@@ -198,7 +221,7 @@ impl Processor {
             // as the circles are stored in arbitrary order - the only thing that's guarunteed
             // is that each item in our circle is connected to the item directly before and after it (cyclically),
             // and that no items are repeated.
-            let mut next_h = self.move_on_circle(&curr.circle, curr_point.isoline_index, curr_point.pos, curr_scw)?;
+            let mut next_h = curr_spaced_points[curr_spaced_point_index + 1];
             let (mut next_hv, next_dir_flag) = {
                 let same = self.move_on_circle(&next.circle, next_v.isoline_index, next_v.pos, maybe_neg(next_scw, direction_flag))?;
                 let opposite = self.move_on_circle(&next.circle, next_v.isoline_index, next_v.pos, maybe_neg(next_scw, !direction_flag))?;
@@ -244,6 +267,8 @@ impl Processor {
                 group: Group::Seam,
             }).unwrap();
 
+            let next_spaced_points = spaced_points(next_len, next_v, &next.circle, next_dir_flag)?;
+            let mut next_spaced_point_index = 0;
             let mut stop = 0;
             let mut curr_stitch_num = 0.0;
             while curr_stitch_num < curr_stitches {
@@ -255,12 +280,14 @@ impl Processor {
                     internal_result.push(InternalStitchCommand::MoveCurr);
                     curr_stitch_num += 1.0;
                     curr_point = next_h;
+                    curr_spaced_point_index = (curr_spaced_point_index + 1) % curr_spaced_points.len();
                     next_h = self.move_on_circle(&curr.circle, curr_point.isoline_index, curr_point.pos, curr_scw)?;
                     self.send_stitch(curr_point.pos, next_v.pos);
                 } else {
                     internal_result.push(InternalStitchCommand::MoveNext);
+                    next_spaced_point_index = (next_spaced_point_index + 1) % next_spaced_points.len();
                     next_v = next_hv;
-                    next_hv = self.move_on_circle(&next.circle, next_v.isoline_index, next_v.pos, next_scw)?;
+                    next_hv = next_spaced_points[(next_spaced_point_index + 1) % next_spaced_points.len()];
                     self.send_stitch(curr_point.pos, next_v.pos);
                 }
             }
@@ -268,7 +295,9 @@ impl Processor {
             // POTENTIALLY to be used (needs further consideration)
             // internal_result.push(InternalStitchCommand::MoveCurr);
 
-            curr_point = next_hv;
+            curr_spaced_points = next_spaced_points;
+            curr_point = curr_spaced_points[0];
+            curr_spaced_point_index = 0;
             curr = next;
             direction_flag = next_dir_flag;
             isoline += 1;
