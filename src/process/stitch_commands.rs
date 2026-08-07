@@ -120,6 +120,7 @@ use three_d::Srgba;
 impl Processor {
     pub fn tree_into_stitches(&self, tree: CircleTree, sizes_calculator: FixedHookCalculator, isolines_map: &IsolinesMap) -> Result<Vec<StitchCommand>> {
         // return Err(Error { issue: "".to_string(), fault: ErrorFault::User, solution: "" });
+        self.sender.send(DisplayCommand::ClearAll).unwrap();
         let scw = sizes_calculator.relative_to_stl(1.0, false);
         let mut internal_result = Vec::new();
         
@@ -150,11 +151,11 @@ impl Processor {
                 result.push(curr_stitch);
             }
 
-            for stitch in &result {
-                let pos = stitch.pos.into();
-                self.sender.send(DisplayCommand::Point { pos, radius: self.model.radius * 0.035, colour: Srgba::RED, depth: false, group: Group::Stitch }).unwrap();
-                std::thread::sleep(std::time::Duration::from_secs_f32(0.3));
-            }
+            // for stitch in &result {
+            //     let pos = stitch.pos.into();
+            //     self.sender.send(DisplayCommand::Point { pos, radius: self.model.radius * 0.035, colour: Srgba::RED, depth: false, group: Group::Stitch }).unwrap();
+            //     std::thread::sleep(std::time::Duration::from_secs_f32(0.3));
+            // }
             Ok(result)
         };
 
@@ -172,8 +173,6 @@ impl Processor {
             let cmp_data: (usize, &IsolinesMap, &[NodeOnEdge], f32) = (isoline, isolines_map, &curr.circle, curr.circle_len);
             let curr_len = curr.circle_len;
             let curr_stitches = (curr_len / scw).round();
-            let curr_scw = curr_len / curr_stitches;
-            let curr_scw = maybe_neg(curr_scw, direction_flag);
             let next_len = next.circle_len;
             let next_stitches = (next_len / scw).round();
             let next_scw = next_len / next_stitches;
@@ -241,8 +240,8 @@ impl Processor {
             // so we walk backwards until finding the first point we DON'T want,
             // before pushing back to the first point we DO want.
 
-            if self.cmp_horizontal_distance_curr(cmp_data, next_hv, next_h, curr_point)? == Ordering::Less {
-                while self.cmp_horizontal_distance_curr(cmp_data, next_hv, next_h, curr_point)? == Ordering::Less {
+            if (next_hv.pos - next_h.pos).magnitude_squared() < (next_hv.pos - curr_point.pos).magnitude_squared() {
+                while (next_hv.pos - next_h.pos).magnitude_squared() < (next_hv.pos - curr_point.pos).magnitude_squared() {
                     next_hv = next_v;
                     next_v = self.move_on_circle(&next.circle, next_v.isoline_index, next_v.pos, -next_scw)?;
                 }
@@ -252,7 +251,7 @@ impl Processor {
                 next_hv = self.move_on_circle(&next.circle, next_v.isoline_index, next_v.pos, next_scw)?;
             } else {
                 // Other way around, no push back needed
-                while self.cmp_horizontal_distance_curr(cmp_data, next_hv, next_h, curr_point)? == Ordering::Greater {
+                while (next_hv.pos - next_h.pos).magnitude_squared() > (next_hv.pos - curr_point.pos).magnitude_squared() {
                     next_v = next_hv;
                     next_hv = self.move_on_circle(&next.circle, next_v.isoline_index, next_v.pos, next_scw)?;
                 }
@@ -263,7 +262,7 @@ impl Processor {
                 b: next_v.pos.into(),
                 thickness: self.model.radius * 0.02,
                 colour: Srgba::WHITE,
-                depth: false,
+                depth: true,
                 group: Group::Seam,
             }).unwrap();
 
@@ -274,22 +273,31 @@ impl Processor {
             while curr_stitch_num < curr_stitches {
                 stop += 1;
                 assert_internal::<13>(stop < 10_000, None)?;
-                std::thread::sleep(std::time::Duration::from_secs_f32(0.3));
+                // std::thread::sleep(std::time::Duration::from_secs_f32(0.3));
                 // self.sender.send(DisplayCommand::Clear(Group::Stitch)).unwrap();
-                if self.cmp_horizontal_distance_curr(cmp_data, next_hv, next_h, curr_point)? == Ordering::Less {
+                if (next_hv.pos - next_h.pos).magnitude_squared() < (next_hv.pos - curr_point.pos).magnitude_squared() {
                     internal_result.push(InternalStitchCommand::MoveCurr);
                     curr_stitch_num += 1.0;
+                    let prev_point = curr_point.pos;
                     curr_point = next_h;
                     curr_spaced_point_index = (curr_spaced_point_index + 1) % curr_spaced_points.len();
-                    next_h = self.move_on_circle(&curr.circle, curr_point.isoline_index, curr_point.pos, curr_scw)?;
-                    self.send_stitch(curr_point.pos, next_v.pos);
+                    next_h = curr_spaced_points[(curr_spaced_point_index + 1) % curr_spaced_points.len()];
+                    self.send_stitch(curr_point.pos, next_v.pos, prev_point);
                 } else {
                     internal_result.push(InternalStitchCommand::MoveNext);
                     next_spaced_point_index = (next_spaced_point_index + 1) % next_spaced_points.len();
+                    let prev_point = next_v.pos;
                     next_v = next_hv;
                     next_hv = next_spaced_points[(next_spaced_point_index + 1) % next_spaced_points.len()];
-                    self.send_stitch(curr_point.pos, next_v.pos);
+                    self.send_stitch(curr_point.pos, next_v.pos, prev_point);
                 }
+            }
+            
+            while next_spaced_point_index > next_spaced_points.len() / 2 {
+                internal_result.push(InternalStitchCommand::MoveNext);
+                let prev_point = next_spaced_points[next_spaced_point_index].pos;
+                next_spaced_point_index = (next_spaced_point_index + 1) % next_spaced_points.len();
+                self.send_stitch(curr_spaced_points[curr_spaced_point_index].pos, next_spaced_points[next_spaced_point_index].pos, prev_point);
             }
 
             // POTENTIALLY to be used (needs further consideration)
@@ -303,18 +311,28 @@ impl Processor {
             isoline += 1;
         }
         // todo!()
+        self.sender.send(DisplayCommand::Clear(Group::Backtrack)).unwrap();
+        self.sender.send(DisplayCommand::MeshVisible(false)).unwrap();
         Err(Error { issue: "".to_string(), fault: ErrorFault::User, solution: "no solution" })
     }
 
-    fn send_stitch(&self, a: PVec3, b: PVec3) {
+    fn send_stitch(&self, a: PVec3, b: PVec3, prev_point: PVec3) {
         self.sender.send(DisplayCommand::Edge {
             a: a.into(),
             b: b.into(),
             thickness: self.model.radius * 0.01,
             colour: Srgba::new(80, 80, 0, 192),
-            depth: false,
+            depth: true,
             group: Group::Stitch,
-        }).unwrap()
+        }).unwrap();
+        self.sender.send(DisplayCommand::Face {
+            a: a.into(),
+            b: b.into(),
+            c: prev_point.into(),
+            colour: Srgba::new(200, 200, 200, 255),
+            depth: true,
+            group: Group::Stitch,
+        }).unwrap();
     }
 
     /// To be used to compare horizontal distance between a test point
@@ -359,7 +377,7 @@ impl Processor {
             b: start.into(),
             thickness: self.model.radius * 0.03,
             colour: Srgba::RED,
-            depth: false,
+            depth: true,
             group: Group::Backtrack,
         }).unwrap();
 
@@ -465,6 +483,7 @@ impl Processor {
         }
     }
 
+    // Double check that this works correctly backwards.
     fn move_on_circle(&self, circle: &[NodeOnEdge], mut curr_index: usize, curr_pos: PVec3, mut distance: f32) -> Result<StitchPoint> {
         let rev = distance < 0.0;
         let next_index: Box<dyn Fn(usize) -> usize> = if rev { Box::new(|curr_index| {

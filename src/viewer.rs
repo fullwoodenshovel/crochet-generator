@@ -19,6 +19,7 @@ type OutputResult = crate::process::Result<Output>;
 pub enum DisplayCommand {
     ClearAll,
     Clear(Group),
+    MeshVisible(bool),
     Point {
         pos: V3,
         radius: f32,
@@ -70,6 +71,8 @@ pub struct Viewer {
 
     #[cfg(target_arch = "wasm32")]
     last_touched_obj: Option<bool>,
+
+    mesh_visible: bool,
 }
 
 enum ProcessorState {
@@ -120,14 +123,14 @@ impl Viewer {
         };
         
         let window = Window::new(WindowSettings {
-            title: "STL Viewer".to_string(),
+            title: "Crochet Generator".to_string(),
             #[cfg(target_arch = "wasm32")]
             max_size: Some((w, h)),
             ..Default::default()
         })?;
 
         // let window = Window::new(WindowSettings {
-        //     title: "STL Viewer".to_string(),
+        //     title: "Crochet Generator".to_string(),
         //     #[cfg(target_arch = "wasm32")]
         //     canvas: Some(canvas),
         //     ..Default::default()
@@ -185,6 +188,7 @@ impl Viewer {
             seed_point: None,
             #[cfg(target_arch = "wasm32")]
             last_touched_obj: None,
+            mesh_visible: true,
         }
     }
 
@@ -253,6 +257,7 @@ impl Viewer {
                     DisplayCommand::Point { pos, radius, colour, depth, group } => self.debug.point(group as usize, pos.0.into(), radius, colour, depth),
                     DisplayCommand::Edge { a, b, thickness, colour, depth, group } => self.debug.edge(group as usize, a.0.into(), b.0.into(), thickness, colour, depth),
                     DisplayCommand::Face { a, b, c, colour, depth, group } => self.debug.face(group as usize, a.0.into(), b.0.into(), c.0.into(), colour, depth),
+                    DisplayCommand::MeshVisible(visibility) => self.mesh_visible = visibility,
                 }
             }
 
@@ -374,7 +379,9 @@ impl Viewer {
                 ))
                 .render(
                     &self.cam.camera,
-                    std::iter::once(&self.mesh as &dyn Object)
+                    self.mesh_visible
+                        .then_some(&self.mesh as &dyn Object)
+                        .into_iter()
                         .chain(self.debug.occluded()),
                     &[&self.ambient, &self.directional],
                 )

@@ -16,6 +16,7 @@ mod connect;
 mod stitch_commands;
 mod sizes_calculator;
 pub use sizes_calculator::{Measurement, SizesCalculator, FixedHookCalculator, MEASUREMENTS};
+mod find_intersections;
 
 use crate::{model::Model, process::isolines::{IsolinesVec, OnEdge}, viewer::DisplayCommand};
 use std::result::Result as StdResult;
