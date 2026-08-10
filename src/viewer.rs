@@ -1,6 +1,6 @@
 // This file was partially made by AI
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use three_d::*;
@@ -73,6 +73,8 @@ pub struct Viewer {
     last_touched_obj: Option<bool>,
 
     mesh_visible: bool,
+
+    selected_stitch: Arc<Mutex<Option<usize>>>,
 }
 
 enum ProcessorState {
@@ -189,6 +191,7 @@ impl Viewer {
             #[cfg(target_arch = "wasm32")]
             last_touched_obj: None,
             mesh_visible: true,
+            selected_stitch: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -323,7 +326,7 @@ impl Viewer {
                         let origin = self.cam.camera.position_at_pixel(*position);
 
                         if let Some((face, hit)) = pick_triangle(&self.model, origin, dir) && let Some(command) = generate_command(self.sizes.clone(), self.model.radius, face, hit) {
-                            self.processor = start_command(self.model.clone(), &self.self_sender, self.processor.take(), command);
+                            self.processor = start_command(self.model.clone(), &self.self_sender, self.processor.take(), command, self.selected_stitch.clone());
                         }
                     },
                     Event::MousePress { button: MouseButton::Right, position, modifiers: _, handled: false } => {
@@ -331,8 +334,25 @@ impl Viewer {
                         let origin = self.cam.camera.position_at_pixel(*position);
                         
                         if let Some((face, hit)) = pick_triangle(&self.model, origin, dir) {
-                            self.processor = start_command(self.model.clone(), &self.self_sender, self.processor.take(), ProcessorCommand::ReverseTraverse { face_index: face, position: V3::new(hit.into()) });
+                            self.processor = start_command(self.model.clone(), &self.self_sender, self.processor.take(), ProcessorCommand::ReverseTraverse { face_index: face, position: V3::new(hit.into()) }, self.selected_stitch.clone());
                         }
+                    },
+                    Event::KeyPress { kind: Key::ArrowLeft, modifiers: _, handled: false } => {
+                        let mut lock = self.selected_stitch.lock().unwrap();
+                        if let Some(stitch) = *lock {
+                            if stitch == 0 {
+                                *lock = None;
+                            } else {
+                                *lock = Some(stitch - 1);
+                                self.processor = start_command(self.model.clone(), &self.self_sender, self.processor.take(), ProcessorCommand::HighlightStitch, self.selected_stitch.clone());
+                            }
+                        }
+                    },
+                    Event::KeyPress { kind: Key::ArrowRight, modifiers: _, handled: false } => {
+                        let mut lock = self.selected_stitch.lock().unwrap();
+                        let stitch = lock.map(|v| v + 1).unwrap_or(0);
+                        *lock = Some(stitch);
+                        self.processor = start_command(self.model.clone(), &self.self_sender, self.processor.take(), ProcessorCommand::HighlightStitch, self.selected_stitch.clone());
                     },
                     _ => ()
                 }
@@ -366,7 +386,7 @@ impl Viewer {
                             face_index,
                             hit
                         ) {
-                            self.processor = start_command(self.model.clone(), &self.self_sender, self.processor.take(), command);
+                            self.processor = start_command(self.model.clone(), &self.self_sender, self.processor.take(), command, self.selected_stitch.clone());
                         }
                     }
                 }
@@ -421,10 +441,10 @@ fn generate_command(sizes: Option<Sizes>, radius: f32, face_index: usize, hit: V
     })
 }
 
-fn start_command(model: Arc<Model>, self_sender: &UnboundedSender<DisplayCommand>, processor: ProcessorState, command: ProcessorCommand) -> ProcessorState {
+fn start_command(model: Arc<Model>, self_sender: &UnboundedSender<DisplayCommand>, processor: ProcessorState, command: ProcessorCommand, current_stitch_index: Arc<Mutex<Option<usize>>>) -> ProcessorState {
     match processor {
         ProcessorState::None => {
-            let mut processor = Processor::new(model, self_sender.clone());
+            let mut processor = Processor::new(model, self_sender.clone(), current_stitch_index);
 
             #[cfg(target_arch = "wasm32")]
             {
