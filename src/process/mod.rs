@@ -13,13 +13,14 @@ mod dijkstras;
 mod isolines;
 use isolines::NodeOnEdge;
 mod connect;
-mod stitches;
+mod intermediate;
 mod sizes_calculator;
 pub use sizes_calculator::{Measurement, SizesCalculator, FixedHookCalculator, MEASUREMENTS};
 mod find_intersections;
+mod stitches;
 mod human_readable;
 
-use crate::{model::Model, process::{human_readable::Readable, isolines::{IsolinesVec, OnEdge}}, viewer::DisplayCommand};
+use crate::{model::Model, process::{isolines::{IsolinesVec, OnEdge}, stitches::{Readable, StitchCommand, StitchDisplay}}, viewer::DisplayCommand};
 use std::result::Result as StdResult;
 
 pub type Result<T> = StdResult<T, Error>;
@@ -89,7 +90,7 @@ pub struct Processor {
     vertex_to_faces: Vec<Vec<usize>>,
     info: Option<GeneratedInfo>,
     sender: mpsc::UnboundedSender<DisplayCommand>,
-    readable_commands: Option<Vec<Readable>>,
+    readable_commands: Option<StitchDisplay>,
     current_stitch_index: Arc<Mutex<Option<usize>>>,
 }
 
@@ -144,6 +145,7 @@ pub enum Group {
     Seam,
     Stitch,
     HighlightedStitch,
+    StitchRow,
 }
 
 struct GeneratedInfo {
@@ -249,8 +251,9 @@ impl Processor {
         let map = self.get_isoline_map(isolines);
         let tree = self.connect(&map, isolines)?;
         let (magic_circle, magic_highlights, internal_stitches) = self.tree_into_stitches(tree, calculator, &map)?;
-        let readable_commands = human_readable::Readable::from_internal(internal_stitches, magic_circle, magic_highlights);
-        print!("{readable_commands:?}");
+        let stitch_commands = StitchCommand::from_internal(internal_stitches, magic_circle, magic_highlights);
+        let readable_commands = StitchDisplay::from_internal(stitches::StitchFormatChoice::StitchPoint, stitch_commands);
+        println!("\n\n{readable_commands}");
         self.readable_commands = Some(readable_commands);
         Ok(Output::None)
     }
@@ -276,7 +279,7 @@ impl Processor {
             })
         }
 
-        self.display_from_vec(stitches, *index);
+        self.display_from_value(stitches, *index);
 
         Ok(Output::None)
     }
@@ -323,3 +326,12 @@ fn remove_duplicates<T: PartialEq>(vec: Vec<T>) -> Vec<T> {
 fn hsv(h: f32, s: f32, v: f32) -> Srgba {
     Hsva::new(h, s, v, 1.0).to_srgb().into()
 }
+
+// Show isolines
+// Only show stitches, not pointer movements
+// Index next rows in display
+// Fix chains
+// Specify "into the same stitch" for each instruction including multiple stitches
+// fix SKIP
+// use RepInc
+// specify how many stitch points they should have by the end of a row.
