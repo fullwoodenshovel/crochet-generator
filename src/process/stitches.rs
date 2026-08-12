@@ -293,7 +293,7 @@ pub enum StitchFormatChoice {
 }
 
 pub enum StitchFormatter {
-    StitchPoint(Vec<(StitchPointFormat, Vec<Highlight>, HighlightConf)>)
+    StitchPoint(Vec<(StitchPointFormat, Vec<Highlight>)>)
 }
 
 impl StitchFormatter {
@@ -313,8 +313,8 @@ impl StitchDisplay {
     fn from_formatter(formatter: StitchFormatter) -> Self {
         let (vec, seperator) = match formatter {
             StitchFormatter::StitchPoint(items) => (
-                items.into_iter().map(|(v, h, conf)| (v.to_string(), h, conf)).collect(),
-                " -- "
+                items.into_iter().map(|(v, h)| (v.to_string(), h, v.get_conf())).collect(),
+                StitchPointFormat::SEPERATOR
             ),
         };
 

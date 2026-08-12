@@ -31,45 +31,55 @@ pub enum StitchPointFormat {
 }
 
 impl StitchPointFormat {
-    pub fn from_intermediate(mut vec: VecDeque<StitchCommand>) -> Vec<(Self, Vec<Highlight>, HighlightConf)> {
+    pub const SEPERATOR: &str = " -- ";
+
+    pub fn from_intermediate(mut vec: VecDeque<StitchCommand>) -> Vec<(Self, Vec<Highlight>)> {
         let mut result = Vec::new();
         let StitchCommand::MagicCircle(circle, highlights) = vec.pop_front().unwrap() else { panic!("Unexpected stitch") };
-        result.push((Self::MagicCircle(circle), highlights, HighlightConf::space_seperator()));
+        result.push((Self::MagicCircle(circle), highlights));
         let StitchCommand::NextRow(highlights) = vec.pop_front().unwrap() else { panic!("Unexpected stitch") };
-        result.push((Self::NextRow, highlights, HighlightConf::new(String::new(), "\n--- NEXT ROW ---\n".to_string(), false)));
+        result.push((Self::NextRow, highlights));
         let mut convert_to_chain = true;
 
         for item in vec {
             match item {
                 StitchCommand::Inc(n, highlights) => if convert_to_chain {
                     if n == 1 {
-                        result.push((Self::Chain, highlights, HighlightConf::default()));
+                        result.push((Self::Chain, highlights));
                     } else if n == 2 {
-                        result.push((Self::ChainSc, highlights, HighlightConf::default()));
+                        result.push((Self::ChainSc, highlights));
                     } else {
-                        result.push((Self::ChainInc(n), highlights, HighlightConf::default()));
+                        result.push((Self::ChainInc(n), highlights));
                     }
                     convert_to_chain = false
                 } else {
                     if n == 1 {
-                        result.push((Self::Sc, highlights, HighlightConf::default()))
+                        result.push((Self::Sc, highlights))
                     } else {
-                        result.push((Self::Inc(n), highlights, HighlightConf::default()))
+                        result.push((Self::Inc(n), highlights))
                     }
                 },
                 StitchCommand::Dec(n, highlights) => if convert_to_chain {
-                    result.push((Self::ChainDec(n), highlights, HighlightConf::default()));
+                    result.push((Self::ChainDec(n), highlights));
                     convert_to_chain = false;
                 } else {
-                    result.push((Self::Dec(n), highlights, HighlightConf::default()));
+                    result.push((Self::Dec(n), highlights));
                 },
-                StitchCommand::Skip(n, highlights) => result.push((Self::Skip(n), highlights, HighlightConf::default())),
-                StitchCommand::NextRow(highlights) => result.push((Self::NextRow, highlights, HighlightConf::default())),
+                StitchCommand::Skip(n, highlights) => result.push((Self::Skip(n), highlights)),
+                StitchCommand::NextRow(highlights) => result.push((Self::NextRow, highlights)),
                 StitchCommand::MagicCircle(_n, _highlights) => panic!("Unexpected magic circle."),
             }
         }
 
         result
+    }
+
+    pub fn get_conf(&self) -> HighlightConf {
+        match self {
+            StitchPointFormat::MagicCircle(_) => HighlightConf::space_seperator(),
+            StitchPointFormat::NextRow => HighlightConf::new(String::new(), "\n--- NEXT ROW ---\n".to_string(), false),
+            _ => HighlightConf::default()
+        }
     }
 }
 
@@ -82,9 +92,9 @@ impl Display for StitchPointFormat {
             StitchPointFormat::Inc(n) => write!(f, "Single crochet x{n}"),
             StitchPointFormat::ChainInc(n) => write!(f, "Chain 1 (count as sc) AND Single crochet x{}", n-1),
             StitchPointFormat::ChainSc => write!(f, "Chain 1 (count as sc) AND Single crochet"),
-            StitchPointFormat::Dec(n) => write!(f, "Single crochet{}", "SKIP".repeat(*n)),
-            StitchPointFormat::ChainDec(n) => write!(f, "Chain 1 (count as sc){}", "SKIP".repeat(*n)),
-            StitchPointFormat::Skip(n) => write!(f, "{}", "SKIP".repeat(*n)),
+            StitchPointFormat::Dec(n) => write!(f, "Single crochet{}", " -- SKIP".repeat(*n)),
+            StitchPointFormat::ChainDec(n) => write!(f, "Chain 1 (count as sc){}", " -- SKIP".repeat(*n)),
+            StitchPointFormat::Skip(n) => write!(f, "{}", "SKIP -- ".repeat(*n)),
             StitchPointFormat::NextRow => write!(f, "Close of this row with a slip stitch."),
         }
     }
