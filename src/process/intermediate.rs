@@ -17,7 +17,7 @@ use crate::process::connect::{CircleTree, IsolinesMap};
 pub enum InternalStitchCommand {
     MoveCurr(Highlight),
     MoveNext(Highlight),
-    NextRow,
+    NextRow(Highlight, Highlight),
 }
 
 fn nearest_stitch_size(relative_size: f32) -> f32 {
@@ -69,6 +69,13 @@ fn intersect(n: PVec3, a: PVec3, b: PVec3, c: PVec3, d: PVec3) -> PVec3 {
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct Highlight(pub HighlightPoint, pub HighlightPoint);
+
+impl Highlight {
+    pub fn null() -> Self {
+        let null = HighlightPoint { pos: PVec3::splat(0.0), isoline_index: 0 };
+        Self(null, null)
+    }
+}
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct HighlightPoint {
@@ -156,7 +163,7 @@ impl Processor {
         let mut magic_highlights = Vec::with_capacity(curr_spaced_points.len());
         for (i, [a, b]) in curr_spaced_points.array_windows().map(|[a, b]| [a, b]).chain(Some([curr_spaced_points.last().unwrap(), curr_spaced_points.first().unwrap()])).enumerate() {
             self.send_stitch(seed_point, b.pos, a.pos);
-            magic_highlights.push(Highlight(HighlightPoint { pos: a.pos, isoline_index: i }, HighlightPoint { pos: b.pos, isoline_index: (i + 1) % curr_spaced_points.len() }));
+            magic_highlights.push(Highlight(HighlightPoint { pos: seed_point, isoline_index: 0 }, HighlightPoint { pos: a.pos, isoline_index: i }));
         }
 
         while let Some(next) = curr.children.pop() {
@@ -174,7 +181,6 @@ impl Processor {
             let next_len = next.circle_len;
             let next_stitches = (next_len / scw).round();
             let next_scw = next_len / next_stitches;
-            internal_result.push(InternalStitchCommand::NextRow);
 
             let mut next_v = {
                 let mut min_i = 0;
@@ -264,7 +270,20 @@ impl Processor {
                 group: Group::Seam,
             }).unwrap();
 
+            self.sender.send(DisplayCommand::Point {
+                pos: curr_point.pos.into(),
+                radius: self.model.radius * 0.02,
+                colour: Srgba::WHITE,
+                depth: true,
+                group: Group::Seam,
+            }).unwrap();
+
             let next_spaced_points = spaced_points(next_len, next_v, &next.circle, next_dir_flag)?;
+            internal_result.push(InternalStitchCommand::NextRow(
+                Highlight(HighlightPoint::from(curr_spaced_points[curr_spaced_points.len() - 1]), HighlightPoint::from(curr_spaced_points[0])),
+                Highlight(HighlightPoint::from(curr_spaced_points[0]), HighlightPoint::from(next_spaced_points[0]))
+            ));
+
             let mut next_spaced_point_index = 0;
             let mut stop = 0;
             let mut curr_stitch_num = 0.0;
@@ -311,8 +330,22 @@ impl Processor {
             isoline += 1;
         }
 
-        internal_result.push(InternalStitchCommand::NextRow);
-        for (i, [a, b]) in curr_spaced_points.array_windows().map(|[a, b]| [a, b]).chain(Some([curr_spaced_points.last().unwrap(), curr_spaced_points.first().unwrap()])).enumerate() {
+
+        self.sender.send(DisplayCommand::Point {
+            pos: curr_point.pos.into(),
+            radius: self.model.radius * 0.02,
+            colour: Srgba::WHITE,
+            depth: true,
+            group: Group::Seam,
+        }).unwrap();
+
+
+        // internal_result.push(InternalStitchCommand::NextRow(
+        //     Highlight(HighlightPoint::from(curr_spaced_points[curr_spaced_points.len() - 1]), HighlightPoint::from(curr_spaced_points[0])),
+        //     Highlight::null()
+        // ));
+
+        for [a, b] in curr_spaced_points.array_windows().map(|[a, b]| [a, b]).chain(Some([curr_spaced_points.last().unwrap(), curr_spaced_points.first().unwrap()])) {
             self.send_stitch(b.pos, furthest_point, a.pos);
             internal_result.push(InternalStitchCommand::MoveCurr(Highlight((*a).into(), HighlightPoint { pos: furthest_point, isoline_index: 0 })));
         }
@@ -329,7 +362,7 @@ impl Processor {
             thickness: self.model.radius * 0.01,
             colour: Srgba::new(80, 80, 0, 192),
             depth: true,
-            group: Group::Stitch,
+            group: Group::StitchFaceOutline,
         }).unwrap();
         self.sender.send(DisplayCommand::Face {
             a: a.into(),

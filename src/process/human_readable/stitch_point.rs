@@ -5,7 +5,7 @@ use std::{collections::VecDeque, fmt::Display};
 use crate::process::{intermediate::Highlight, stitches::{HighlightConf, StitchCommand}};
 
 
-pub enum StitchPointFormat {
+pub enum Format {
     /// Start with a magic circle with <n> stitches.
     MagicCircle(usize),
     /// Single crochet --
@@ -30,7 +30,7 @@ pub enum StitchPointFormat {
     NextRow,
 }
 
-impl StitchPointFormat {
+impl Format {
     pub const SEPERATOR: &str = " -- ";
 
     pub fn from_intermediate(mut vec: VecDeque<StitchCommand>) -> Vec<(Self, Vec<Highlight>)> {
@@ -76,26 +76,26 @@ impl StitchPointFormat {
 
     pub fn get_conf(&self) -> HighlightConf {
         match self {
-            StitchPointFormat::MagicCircle(_) => HighlightConf::space_seperator(),
-            StitchPointFormat::NextRow => HighlightConf::new(String::new(), "\n--- NEXT ROW ---\n".to_string(), false),
+            Format::MagicCircle(_) => HighlightConf::space_seperator(),
+            Format::NextRow => HighlightConf::new(String::new(), "\n--- NEXT ROW ---\n".to_string(), false),
             _ => HighlightConf::default()
         }
     }
 }
 
-impl Display for StitchPointFormat {
+impl Display for Format {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            StitchPointFormat::MagicCircle(n) => write!(f, "Start with a magic circle with {n} stitches."),
-            StitchPointFormat::Sc => write!(f, "Single crochet"),
-            StitchPointFormat::Chain => write!(f, "Chain 1 (count as sc)"),
-            StitchPointFormat::Inc(n) => write!(f, "Single crochet x{n}"),
-            StitchPointFormat::ChainInc(n) => write!(f, "Chain 1 (count as sc) AND Single crochet x{}", n-1),
-            StitchPointFormat::ChainSc => write!(f, "Chain 1 (count as sc) AND Single crochet"),
-            StitchPointFormat::Dec(n) => write!(f, "Single crochet{}", " -- SKIP".repeat(*n)),
-            StitchPointFormat::ChainDec(n) => write!(f, "Chain 1 (count as sc){}", " -- SKIP".repeat(*n)),
-            StitchPointFormat::Skip(n) => write!(f, "{}", "SKIP -- ".repeat(*n)),
-            StitchPointFormat::NextRow => write!(f, "Close of this row with a slip stitch."),
+            Format::MagicCircle(n) => write!(f, "Start with a magic circle with {n} stitches."),
+            Format::Sc => write!(f, "Single crochet"),
+            Format::Chain => write!(f, "Chain 1 (count as sc)"),
+            Format::Inc(n) => write!(f, "Single crochet x{n}"),
+            Format::ChainInc(n) => write!(f, "Chain 1 (count as sc) AND Single crochet x{}", n-1),
+            Format::ChainSc => write!(f, "Chain 1 (count as sc) AND Single crochet"),
+            Format::Dec(n) => write!(f, "Single crochet{}", " -- SKIP".repeat(*n)),
+            Format::ChainDec(n) => write!(f, "Chain 1 (count as sc){}", " -- SKIP".repeat(*n)),
+            Format::Skip(n) => write!(f, "{}", "SKIP -- ".repeat(*n)),
+            Format::NextRow => write!(f, "Close of this row with a slip stitch."),
         }
     }
 }

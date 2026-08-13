@@ -143,6 +143,7 @@ pub enum Group {
     ReverseTraverse,
     Backtrack,
     Seam,
+    StitchFaceOutline,
     Stitch,
     HighlightedStitch,
     StitchRow,
@@ -252,8 +253,9 @@ impl Processor {
         let tree = self.connect(&map, isolines)?;
         let (magic_circle, magic_highlights, internal_stitches) = self.tree_into_stitches(tree, calculator, &map)?;
         let stitch_commands = StitchCommand::from_internal(internal_stitches, magic_circle, magic_highlights);
-        let readable_commands = StitchDisplay::from_internal(stitches::StitchFormatChoice::StitchPoint, stitch_commands);
-        println!("\n\n{readable_commands}");
+        let readable_commands = StitchDisplay::from_internal(stitches::StitchFormatChoice::Worded, stitch_commands);
+        self.overwrite_debug_stitches(&readable_commands);
+        println!("{readable_commands}");
         self.readable_commands = Some(readable_commands);
         Ok(Output::None)
     }
@@ -268,7 +270,10 @@ impl Processor {
         };
 
         let mut binding = self.current_stitch_index.lock().unwrap();
-        let index = binding.as_mut().expect("current_stitch_index should be set Some before calling highlight_stitch");
+        let Some(index) = binding.as_mut() else {
+            self.display_from_value(stitches, None);
+            return Ok(Output::None)
+        };
         
         if *index >= stitches.len() {
             *index = stitches.len() - 1;
@@ -279,7 +284,7 @@ impl Processor {
             })
         }
 
-        self.display_from_value(stitches, *index);
+        self.display_from_value(stitches, Some(*index));
 
         Ok(Output::None)
     }

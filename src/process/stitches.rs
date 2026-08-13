@@ -3,7 +3,7 @@
 
 use std::{collections::VecDeque, fmt::{Debug, Display}, ops::{Deref, DerefMut}};
 
-use crate::{process::{Group, Processor, human_readable::StitchPointFormat, intermediate::{Highlight, InternalStitchCommand}}, viewer::DisplayCommand};
+use crate::{process::{Group, Processor, human_readable::*, intermediate::{Highlight, InternalStitchCommand}}, viewer::DisplayCommand};
 
 use colored::Colorize;
 use three_d::Srgba;
@@ -101,29 +101,27 @@ impl StitchCommand {
         use MoveStitch::*;
         let mut result = vec![Self::MagicCircle(magic_circle, magic_highlights)];
         let mut curr = MidStitchCommand::Inc(1, Vec::new());
-        assert!(matches!(stitches[0], ISC::NextRow));
-        for [stitch, next_stitch] in stitches.array_windows().map(|[a, b]| [*a, *b]).chain(Some([*stitches.last().unwrap(), ISC::NextRow])) {
+        assert!(matches!(stitches[0], ISC::NextRow(_, _)));
+        for [stitch, next_stitch] in stitches.array_windows().map(|[a, b]| [*a, *b]).chain(Some([*stitches.last().unwrap(), ISC::NextRow(Highlight::null(), Highlight::null())])) {
             let moving = match stitch {
                 ISC::MoveCurr(highlight) => Move::new(Curr, highlight),
                 ISC::MoveNext(highlight) => Move::new(Next, highlight),
-                ISC::NextRow => {
+                ISC::NextRow(ss, chain) => {
                     // assert!(matches!(curr, MidStitchCommand::Inc(1, _)));
                     if let MidStitchCommand::Inc(n, highlight) = curr && n > 1 {
                         result.push(Self::Inc(n - 1, highlight))
                     }
-                    result.push(Self::NextRow(Vec::new()));
-                    curr = MidStitchCommand::Inc(1, Vec::new());
+                    result.push(Self::NextRow(vec![ss]));
+                    curr = MidStitchCommand::Inc(1, vec![chain]);
                     continue;
                 }
             };
-
-            
 
             if moving.highlight.0.isoline_index == 0 && moving.highlight.1.isoline_index == 0 {
                 continue;
             }
 
-            if matches!(moving.stitch, Curr) && matches!(next_stitch, ISC::NextRow) {
+            if matches!(moving.stitch, Curr) && matches!(next_stitch, ISC::NextRow(_, _)) {
                 continue;
             }
 
@@ -131,13 +129,14 @@ impl StitchCommand {
                 MidStitchCommand::Inc(n, mut highlight) => match moving.stitch {
                     Curr => if n == 0 {
                         // This can only happen in the case that curr was an increase n >= 2, and then Move::Curr happened twice in a row.
-                        curr = MidStitchCommand::Skip(1, vec![moving.highlight]);
+                        // curr = MidStitchCommand::Skip(1, vec![moving.highlight]);
+                        curr = MidStitchCommand::Skip(1, Vec::new());
                         if !matches!(next_stitch, ISC::MoveCurr(_)) {
                             result.push(curr.into_stitch_command());
                             curr = MidStitchCommand::Inc(0, Vec::new())
                         }
                     } else if n == 1 {
-                        highlight.push(moving.highlight);
+                        // highlight.push(moving.highlight);
                         if matches!(next_stitch, ISC::MoveCurr(_)) {
                             curr = MidStitchCommand::Dec(0, highlight);
                         } else {
@@ -145,7 +144,7 @@ impl StitchCommand {
                             curr = MidStitchCommand::Inc(0, Vec::new())
                         }
                     } else {
-                        highlight.push(moving.highlight);
+                        // highlight.push(moving.highlight);
                         result.push(StitchCommand::Inc(n, highlight));
                         curr = MidStitchCommand::Inc(0, Vec::new());
                     },
@@ -154,9 +153,9 @@ impl StitchCommand {
                         curr = MidStitchCommand::Inc(n + 1, highlight)
                     },
                 },
-                MidStitchCommand::Dec(n, mut highlight) => match moving.stitch {
+                MidStitchCommand::Dec(n, highlight) => match moving.stitch {
                     Curr => {
-                        highlight.push(moving.highlight);
+                        // highlight.push(moving.highlight);
                         curr = MidStitchCommand::Dec(n + 1, highlight);
                         if !matches!(next_stitch, ISC::MoveCurr(_)) {
                             result.push(curr.into_stitch_command());
@@ -216,7 +215,7 @@ enum ReadableCompressedStitchCommand {
 
 
 #[derive(Clone)]
-pub struct Readable(
+pub struct Readable (
     ReadableCompressedStitchCommand,
     Vec<Highlight>
 );
@@ -259,16 +258,10 @@ impl Readable {
             StitchCommand::Skip(n, highlights) => vec![Self(RCSC::Skip(n * stitch.1), highlights)],
         }
     }
-
-    fn from_internal(stitches: Vec<InternalStitchCommand>, magic_circle: usize, magic_highlights: Vec<Highlight>) -> Vec<Self> {
-        let stitches = StitchCommand::from_internal(stitches, magic_circle, magic_highlights);
-        let compressed_stitches = CompressedStitchCommand::from_stitch_commands(stitches.into());
-        Self::from_compressed_stitch_commands(compressed_stitches)
-    }
 }
 
 impl Processor {
-    pub fn display_from_value(&self, display: &StitchDisplay, index: usize) {
+    pub fn display_from_value(&self, display: &StitchDisplay, index: Option<usize>) {
         let (string, highlights) = display.highlight_value(index);
 
         self.sender.send(DisplayCommand::Clear(Group::HighlightedStitch)).unwrap();
@@ -281,25 +274,57 @@ impl Processor {
                 colour: Srgba::RED,
                 depth: false,
                 group: Group::HighlightedStitch
-            }).unwrap()
+            }).unwrap();
+            self.sender.send(DisplayCommand::Point {
+                pos: highlight.0.pos.into(),
+                radius: self.model.radius * 0.02,
+                colour: Srgba::RED,
+                depth: false,
+                group: Group::HighlightedStitch
+            }).unwrap();
+            self.sender.send(DisplayCommand::Point {
+                pos: highlight.1.pos.into(),
+                radius: self.model.radius * 0.02,
+                colour: Srgba::RED,
+                depth: false,
+                group: Group::HighlightedStitch
+            }).unwrap();
         }
 
-        println!("{string}")
+        println!("\n\n\n{string}")
+    }
+
+    pub fn overwrite_debug_stitches(&self, display: &StitchDisplay) {
+        self.sender.send(DisplayCommand::Clear(Group::StitchFaceOutline)).unwrap();
+
+        for highlight in display.iter().flat_map(|(_, highlight, _)| highlight) {
+            self.sender.send(DisplayCommand::Edge {
+                a: highlight.0.pos.into(),
+                b: highlight.1.pos.into(),
+                thickness: self.model.radius * 0.015,
+                colour: Srgba::new(80, 80, 0, 192),
+                depth: true,
+                group: Group::Stitch
+            }).unwrap()
+        }
     }
 }
 
 pub enum StitchFormatChoice {
-    StitchPoint
+    StitchPoint,
+    Worded
 }
 
 pub enum StitchFormatter {
-    StitchPoint(Vec<(StitchPointFormat, Vec<Highlight>)>)
+    StitchPoint(Vec<(StitchPointFormat, Vec<Highlight>)>),
+    Worded(Vec<(WordedFormat, Vec<Highlight>)>),
 }
 
 impl StitchFormatter {
     fn from_intermediate(format: StitchFormatChoice, vec: Vec<StitchCommand>) -> Self {
         match format {
             StitchFormatChoice::StitchPoint => Self::StitchPoint(StitchPointFormat::from_intermediate(vec.into())),
+            StitchFormatChoice::Worded => Self::Worded(WordedFormat::from_intermediate(vec.into())),
         }
     }
 }
@@ -316,6 +341,10 @@ impl StitchDisplay {
                 items.into_iter().map(|(v, h)| (v.to_string(), h, v.get_conf())).collect(),
                 StitchPointFormat::SEPERATOR
             ),
+            StitchFormatter::Worded(items) => (
+                items.into_iter().map(|(v, h)| (v.to_string(), h, v.get_conf())).collect(),
+                WordedFormat::SEPERATOR
+            ),
         };
 
         Self { vec, seperator }
@@ -326,12 +355,12 @@ impl StitchDisplay {
         Self::from_formatter(formatter)
     }
 
-    pub fn highlight_value(&self, index: usize) -> (String, Vec<Highlight>) {
+    pub fn highlight_value(&self, index: Option<usize>) -> (String, Vec<Highlight>) {
         let mut result_str = String::new();
         let mut result_highlights = Vec::new();
         for (i, (string, highlights, config)) in self.vec[..self.vec.len() - 1].iter().enumerate() {
             result_str.push_str(&config.prefix);
-            if i == index {
+            if Some(i) == index {
                 result_str.push_str(&format!("<{}>", string).bold().to_string());
                 result_highlights.append(&mut highlights.clone());
             } else {
@@ -364,23 +393,7 @@ impl DerefMut for StitchDisplay {
 
 impl Display for StitchDisplay {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut result = self.vec
-            .clone()
-            .into_iter()
-            .map(|(v, _h, conf)| (v, conf))
-            .collect::<Vec<_>>();
-        let last = result.pop().unwrap();
-        let mut result = result
-            .into_iter()
-            .fold(String::new(), |mut acc, (v, conf)| {
-                acc.push_str(&v);
-                if conf.seperator_follows {
-                    acc.push_str(self.seperator); 
-                }
-                acc
-            });
-        result.push_str(&last.0);
-        write!(f, "{}", result)
+        write!(f, "{}", self.highlight_value(None).0)
     }
 }
 

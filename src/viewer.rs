@@ -344,8 +344,8 @@ impl Viewer {
                                 *lock = None;
                             } else {
                                 *lock = Some(stitch - 1);
-                                self.processor = start_command(self.model.clone(), &self.self_sender, self.processor.take(), ProcessorCommand::HighlightStitch, self.selected_stitch.clone());
                             }
+                            self.processor = start_command(self.model.clone(), &self.self_sender, self.processor.take(), ProcessorCommand::HighlightStitch, self.selected_stitch.clone());
                         }
                     },
                     Event::KeyPress { kind: Key::ArrowRight, modifiers: _, handled: false } => {
