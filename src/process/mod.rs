@@ -163,7 +163,9 @@ struct GeneratedInfo {
 #[derive(Debug, serde::Serialize)]
 pub enum Output {
     None,
-    StitchCommands(String),
+    /// String is already html encoded
+    /// bool is whether it overwrites previous
+    StitchCommands(String, bool),
 }
 
 #[derive(Clone)]
@@ -251,42 +253,41 @@ impl Processor {
 
         let map = self.get_isoline_map(isolines);
         let tree = self.connect(&map, isolines)?;
-        let (magic_circle, magic_highlights, internal_stitches) = self.tree_into_stitches(tree, calculator, &map)?;
+        let (magic_circle, magic_highlights, internal_stitches, final_highlights) = self.tree_into_stitches(tree, calculator, &map)?;
         let stitch_commands = StitchCommand::from_internal(internal_stitches, magic_circle, magic_highlights);
-        let readable_commands = StitchDisplay::from_internal(stitches::StitchFormatChoice::Worded, stitch_commands);
+        let readable_commands = StitchDisplay::from_internal(stitches::StitchFormatChoice::Worded, stitch_commands, final_highlights);
         self.overwrite_debug_stitches(&readable_commands);
-        println!("{readable_commands}");
+        let result = format!("{readable_commands}");
         self.readable_commands = Some(readable_commands);
-        Ok(Output::None)
+        Ok(Output::StitchCommands(result, false))
     }
 
     fn highlight_stitch(&self) -> Result<Output> {
         let Some(stitches) = &self.readable_commands else {
             return Err(Error {
-                issue: "There are no stitches that have been generated yet".to_string(),
+                issue: "Cannot highlight stitches until you have generated stitches.".to_string(),
                 fault: ErrorFault::User,
-                solution: "Generate the stitches before highlighting them.",
+                solution: "First generate the stitches by left clicking.",
             })
         };
 
         let mut binding = self.current_stitch_index.lock().unwrap();
         let Some(index) = binding.as_mut() else {
-            self.display_from_value(stitches, None);
-            return Ok(Output::None)
+            drop(binding);
+            let result = self.display_from_value(stitches, None);
+            return Ok(Output::StitchCommands(result, true))
         };
         
         if *index >= stitches.len() {
             *index = stitches.len() - 1;
-            return Err(Error {
-                issue: "There aren't that many stitches to display".to_string(),
-                fault: ErrorFault::User,
-                solution: "No solution - This is not a persistent error.",
-            })
         }
 
-        self.display_from_value(stitches, Some(*index));
+        let index = *index;
+        drop(binding);
 
-        Ok(Output::None)
+        let result = self.display_from_value(stitches, Some(index));
+
+        Ok(Output::StitchCommands(result, true))
     }
 
     /// Takes verticies as inputs

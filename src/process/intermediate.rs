@@ -103,12 +103,11 @@ impl From<StitchPoint> for HighlightPoint {
 
 impl Processor {
     /// This panics if self.info is None
-    pub fn tree_into_stitches(&self, tree: CircleTree, sizes_calculator: FixedHookCalculator, isolines_map: &IsolinesMap) -> Result<(usize, Vec<Highlight>, Vec<InternalStitchCommand>)> {
+    pub fn tree_into_stitches(&self, tree: CircleTree, sizes_calculator: FixedHookCalculator, isolines_map: &IsolinesMap) -> Result<(usize, Vec<Highlight>, Vec<InternalStitchCommand>, Vec<StitchPoint>)> {
         let info = self.get_info_unwrapped();
         let furthest_point = info.furthest_point.pos;
         let seed_point = info.seed_point;
 
-        // return Err(Error { issue: "".to_string(), fault: ErrorFault::User, solution: "" });
         self.sender.send(DisplayCommand::ClearAll).unwrap();
         let scw = sizes_calculator.relative_to_stl(1.0, false);
         let mut internal_result = Vec::new();
@@ -165,6 +164,8 @@ impl Processor {
             self.send_stitch(seed_point, b.pos, a.pos);
             magic_highlights.push(Highlight(HighlightPoint { pos: seed_point, isoline_index: 0 }, HighlightPoint { pos: a.pos, isoline_index: i }));
         }
+
+        let mut final_highlights = curr_spaced_points.clone();
 
         while let Some(next) = curr.children.pop() {
             if curr.children.len() > 1 {
@@ -320,7 +321,7 @@ impl Processor {
             }
 
             // POTENTIALLY to be used (needs further consideration)
-            // internal_result.push(InternalStitchCommand::MoveCurr);
+            internal_result.push(InternalStitchCommand::MoveCurr(Highlight(curr_spaced_points[0].into(), next_spaced_points[0].into())));
 
             curr_spaced_points = next_spaced_points;
             curr_point = curr_spaced_points[0];
@@ -328,6 +329,7 @@ impl Processor {
             curr = next;
             direction_flag = next_dir_flag;
             isoline += 1;
+            final_highlights = curr_spaced_points.clone();
         }
 
 
@@ -352,7 +354,7 @@ impl Processor {
 
         self.sender.send(DisplayCommand::Clear(Group::Backtrack)).unwrap();
         self.sender.send(DisplayCommand::MeshVisible(false)).unwrap();
-        Ok((initial_stitches, magic_highlights, internal_result))
+        Ok((initial_stitches, magic_highlights, internal_result, final_highlights))
     }
 
     fn send_stitch(&self, a: PVec3, b: PVec3, prev_point: PVec3) {
@@ -580,7 +582,7 @@ fn maybe_neg(float: f32, neg: bool) -> f32 {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-struct StitchPoint {
+pub struct StitchPoint {
     face: usize,
     isoline_index: usize,
     pos: PVec3,

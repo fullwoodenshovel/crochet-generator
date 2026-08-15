@@ -345,6 +345,7 @@ impl Viewer {
                             } else {
                                 *lock = Some(stitch - 1);
                             }
+                            drop(lock);
                             self.processor = start_command(self.model.clone(), &self.self_sender, self.processor.take(), ProcessorCommand::HighlightStitch, self.selected_stitch.clone());
                         }
                     },
@@ -352,6 +353,7 @@ impl Viewer {
                         let mut lock = self.selected_stitch.lock().unwrap();
                         let stitch = lock.map(|v| v + 1).unwrap_or(0);
                         *lock = Some(stitch);
+                        drop(lock);
                         self.processor = start_command(self.model.clone(), &self.self_sender, self.processor.take(), ProcessorCommand::HighlightStitch, self.selected_stitch.clone());
                     },
                     _ => ()
@@ -477,7 +479,20 @@ fn display_output(output: OutputResult) {
     #[cfg(target_arch = "wasm32")]
     crate::push_server_message(&crate::web_glue::ServerMessage::output(output));
     #[cfg(not(target_arch = "wasm32"))]
-    println!("{output:?}");
+    match output {
+        Ok(value) => match value {
+            Output::None => println!("Success."),
+            Output::StitchCommands(commands, _) => println!("{commands}"),
+        },
+        Err(err) => println!("Error:\n{}\nFault:\n{}\nSolution:\n{}", err.issue, match err.fault {
+            crate::process::ErrorFault::Code(debug) => match debug {
+                Some(debug) => format!("Code. Debug info:\n{debug}"),
+                None => "Code. No debug info".to_string(),
+            },
+            crate::process::ErrorFault::User => "User".to_string(),
+            crate::process::ErrorFault::File => "File".to_string(),
+        }, err.solution),
+    }
 }
 
 /* ================= GUI ================= */

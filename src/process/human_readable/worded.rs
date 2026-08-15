@@ -2,7 +2,7 @@
 
 use std::{collections::VecDeque, fmt::Display};
 
-use crate::process::{intermediate::Highlight, stitches::{HighlightConf, StitchCommand}};
+use crate::process::{intermediate::{Highlight, StitchPoint}, stitches::{HighlightConf, StitchCommand}};
 
 
 pub enum Format {
@@ -31,6 +31,9 @@ pub enum Format {
     /// You should have <m> stitches in this row.
     /// --- ROW <n> ---
     Row(usize, usize),
+    // Close off the final row with a slip stitch.
+    // You should have <n> stitches in this row.
+    Final(usize),
 }
 
 impl Format {
@@ -44,7 +47,7 @@ impl Format {
         }
     }
 
-    pub fn from_intermediate(mut vec: VecDeque<StitchCommand>) -> Vec<(Self, Vec<Highlight>)> {
+    pub fn from_intermediate(mut vec: VecDeque<StitchCommand>, final_highlights: Vec<StitchPoint>) -> Vec<(Self, Vec<Highlight>)> {
         let mut result = Vec::new();
         let StitchCommand::MagicCircle(circle, highlights) = vec.pop_front().unwrap() else { panic!("Unexpected stitch") };
         result.push((Self::MagicCircle(circle), highlights));
@@ -122,12 +125,21 @@ impl Format {
             }
         }
 
+        result.push((
+            Self::Final(stitches),
+            vec![Highlight(
+                final_highlights[final_highlights.len() - 1].into(),
+                final_highlights[0].into()
+            )]
+        ));
+
         result
     }
 
     pub fn get_conf(&self) -> HighlightConf {
         match self {
             Format::Row(n, m) => HighlightConf::new(String::new(), format!(".\nThis row should have {m} stitches.\n--- ROW {n} ---\n"), false),
+            Format::Final(n) => HighlightConf::new(String::new(), format!(".\nThis row should have {n} stitches."), false),
             _ => HighlightConf::default()
         }
     }
@@ -146,7 +158,8 @@ impl Display for Format {
             Format::ChainInc(n) => write!(f, "Chain 1 (count as sc) AND put {} Single crochets into this stitch", n-1),
             Format::Skip(n) => write!(f, "Skip the next {n} stitches"),
             Format::SkipOnce => write!(f, "Skip the next stitch"),
-            Format::Row(_, _) => write!(f, "Close of this row with a slip stitch"),
+            Format::Row(_, _) => write!(f, "Close off this row with a slip stitch"),
+            Format::Final(_) => write!(f, "Close off the final row with a slip stitch"),
         }
     }
 }

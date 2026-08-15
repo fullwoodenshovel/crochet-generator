@@ -298,7 +298,7 @@
                 </div>
                 <div class="setting-row">
                     <label for="diameter-input">Diameter (cm)</label>
-                    <input id="diameter-input" inputmode="decimal" value="20">
+                    <input id="diameter-input" inputmode="decimal" value="6">
                 </div>
                 <div class="setting-row">
                     <label for="rows-input">Rows</label>
@@ -618,8 +618,11 @@
                     logLine('Success', 'log-output');
                     clearLastOutput();
                 } else {
-                    logLine('Pattern generated:\n' + data.Ok, 'log-output');
-                    setLastOutput(data.Ok);
+                    let commands = data.Ok.StitchCommands[0];
+                    let overwrite = data.Ok.StitchCommands[1];
+                    logLine('Pattern generated. Use left and right arrows to follow along (model must be focused):', 'log-output');
+                    update_display(commands, overwrite);
+                    setLastOutput(commands);
                 }
                 setGenerating(false);
                 break;
@@ -668,6 +671,25 @@
             logLine('Clipboard copy failed: ' + err.message, 'log-error');
         }
     });
+
+    let result_num = 0;
+    function update_display(string, overwrite) {
+        if (!overwrite) {
+            result_num += 1;
+        }
+        let id_name = "stitches-" + String(result_num);
+        let element = document.getElementById(id_name)
+        if (element != null) {
+            element.remove()
+        }
+
+        let new_element = document.createElement("div");
+        new_element.setAttribute("id", id_name)
+        new_element.setAttribute("class", "log-info");
+        new_element.innerHTML = string;
+
+        logEl.appendChild(new_element)
+    }
 </script>
 </body>
 </html>
