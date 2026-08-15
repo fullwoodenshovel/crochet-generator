@@ -1,10 +1,96 @@
+// This file is partially AI generated (one function)
+// All AI used in this file is documented.
+
 use crate::process::{Connectivity, Node, Processor, Result, assert_internal, failed_assert_internal};
 use crate::process::connect::IsolinesMap;
 use crate::process::process_vec3::PVec3;
 use crate::process::isolines::{NodeOnEdge, OnEdge};
 use three_d::egui::emath::Float;
 
+// This function is AI generated
+fn segment_intersect(n: PVec3, a: PVec3, b: PVec3, c: PVec3, d: PVec3) -> Option<PVec3> {
+    let r = b - a;
+    let s = d - c;
+
+    let denom = r.cross(s).dot(n);
+    if denom.abs() < 1e-6 {
+        return None; // parallel (or collinear) - no unique intersection
+    }
+
+    let t = (c - a).cross(s).dot(n) / denom;
+    let u = (c - a).cross(r).dot(n) / denom;
+
+    if (0.0..=1.0).contains(&t) && (0.0..=1.0).contains(&u) {
+        Some(a + r * t)
+    } else {
+        None
+    }
+}
+
 impl Processor {
+    /// Takes hashmap representation of isolines and the segment node - (pos face).
+    /// current_isoline is used to filter for only intersections with the previous isoline.
+    /// The data inside the return type Ok variant resembles all intersections found: ((i, j), pos, [(p, k); 2]).
+    /// The k values are the ks of the points of intersection. k1 < k2 (unless k1 - k2 is on a boundary).
+    /// p1 and p2 is the node segment that it intersects with. pos is the position of intersection.
+    /// # Panics
+    /// This panics if self.info is None
+    // This is less optimised because we can't do our circling around trick anymore, we need to actually check if each line intersects.
+    // This also means, however, that this code is less prone to bugs.
+    pub(super) fn find_face_intersections(&self, map: &IsolinesMap, node: &Node, face: usize, pos: PVec3, intersecting_isoline: Option<usize>) -> Result<Vec<((usize, usize), PVec3, [(NodeOnEdge, usize); 2])>> {
+        let info = self.get_info_unwrapped();
+        let isolines = &info.isolines;
+
+        let face_normal = self.model.mesh.faces[face].normal.into();
+        let edges = self.edges_on_face(face);
+        let isoline_points: Vec<_> = edges.into_iter().flat_map(|[a, b]| {
+            let edge = OnEdge::new(a, b);
+            map.get(&edge).cloned().unwrap_or_default().iter().filter_map(|(pos, index)|
+                match intersecting_isoline {
+                    Some(current_isoline) => if index.0 == current_isoline {
+                        Some((NodeOnEdge { edge, pos: *pos }, *index))
+                    } else {
+                        None
+                    },
+                    None => Some((NodeOnEdge { edge, pos: *pos }, *index)),
+                }
+            ).collect::<Vec<_>>()
+        }).collect();
+
+        if isoline_points.is_empty() {
+            Ok(Vec::new())
+        } else {
+            // Group together circles. Linear search is fine on isoline_points, as it will be very small.
+            let mut circles = Vec::with_capacity(1);
+            for (node, (i, j, k)) in isoline_points {
+                let vec = match circles.iter_mut().find(|(key, _value)| *key == (i, j)) {
+                    Some(v) => &mut v.1,
+                    None => {
+                        circles.push(((i, j), Vec::with_capacity(1)));
+                        &mut circles.last_mut().unwrap().1
+                    }
+                };
+
+                let Err(index) = vec.binary_search_by_key(&k, |(_node, k)| *k) else {
+                    return Err(failed_assert_internal::<15>(Some("Some point processed twice.".to_string())));
+                };
+
+                vec.insert(index, (node, k));
+            }
+
+            let mut connections = Vec::new();
+
+            for ((i, j), circle) in circles {
+                for [(a, k1), (b, k2)] in circle.array_windows().map(|[a, b]| [a, b]).chain(Some([circle.last().unwrap(), circle.first().unwrap()])) {
+                    if (k1 + 1) % isolines[i][j].1.len() == *k2 && let Some(intersection) = segment_intersect(face_normal, a.pos, b.pos, pos, node.pos) {
+                        connections.push(((i, j), intersection, [(*a, *k1), (*b, *k2)]));
+                    }
+                }
+            }
+
+            Ok(connections)
+        }
+    }
 
     /// Takes hashmap representation of isolines and the segment node1 - node2.
     /// current_isoline is used to filter for only intersections with the previous isoline.

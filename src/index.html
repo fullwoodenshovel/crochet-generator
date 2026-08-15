@@ -620,7 +620,6 @@
                 } else {
                     let commands = data.Ok.StitchCommands[0];
                     let overwrite = data.Ok.StitchCommands[1];
-                    logLine('Pattern generated. Use left and right arrows to follow along (model must be focused):', 'log-output');
                     update_display(commands, overwrite);
                     setLastOutput(commands);
                 }
@@ -675,6 +674,7 @@
     let result_num = 0;
     function update_display(string, overwrite) {
         if (!overwrite) {
+            logLine('Pattern generated. Use left and right arrows to follow along (model must be focused):', 'log-output');
             result_num += 1;
         }
         let id_name = "stitches-" + String(result_num);

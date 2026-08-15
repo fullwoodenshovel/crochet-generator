@@ -426,7 +426,7 @@ fn generate_command(sizes: Option<Sizes>, radius: f32, face_index: usize, hit: V
     Some(ProcessorCommand::Generate {
         face_index,
         position: V3::new(hit.into()),
-        calculator: match if cfg!(all(not(target_arch = "wasm32"), debug_assertions)) {
+        calculator: match if cfg!(not(target_arch = "wasm32")) {
             Sizes::RadiusDivisor(5.0)
         } else {
             sizes.unwrap_or(
