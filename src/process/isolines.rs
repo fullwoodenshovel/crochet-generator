@@ -22,7 +22,7 @@ impl Processor {
     ///     ]
     /// ]
     /// ```
-    pub fn isolines(&self, nodes: &HashMap<Node, (f32, Option<Node>)>, furthest_len: f32, furthest_point: Node, stitch_size: f32, epsilon: f32) -> Result<(IsolinesVec, Node)> {
+    pub fn isolines(&self, nodes: &DijkstrasMap, furthest_len: f32, furthest_point: Node, stitch_size: f32, epsilon: f32) -> Result<(IsolinesVec, Node)> {
         let (points, furthest_point) = self.get_isoline_points(nodes, furthest_len, furthest_point, stitch_size, epsilon)?;
         let faces = self.connect_isoline_faces(points)?;
         let isolines = self.connect_isoline_points(faces)?;
@@ -35,7 +35,7 @@ impl Processor {
         Ok((result, furthest_point))
     }
 
-    fn get_isoline_points(&self, map: &HashMap<Node, (f32, Option<Node>)>, len: f32, furthest_point: Node, stitch_size: f32, epsilon: f32) -> Result<(Vec<HashMap<OnEdge, Vec<PVec3>>>, Node)> {
+    fn get_isoline_points(&self, map: &DijkstrasMap, len: f32, furthest_point: Node, stitch_size: f32, epsilon: f32) -> Result<(Vec<DetHashMap<OnEdge, Vec<PVec3>>>, Node)> {
         let old_ss = stitch_size;
         let total_lines = (len / old_ss).round();
         let utotal_lines = total_lines as usize;
@@ -48,7 +48,7 @@ impl Processor {
             [OnEdge::new(v[0], v[1]), OnEdge::new(v[1], v[2]), OnEdge::new(v[2], v[0])]
         }).collect();
 
-        let mut isoline_points = vec![HashMap::new(); utotal_lines - 1];
+        let mut isoline_points = vec![DetHashMap::default(); utotal_lines - 1];
         for OnEdge { a, b } in edges {
             let mut nodes = Vec::with_capacity(1);
             let node_a = self.node_from_vertex(a);
@@ -99,8 +99,8 @@ impl Processor {
         Ok((isoline_points, furthest_point))
     }
 
-    fn connect_isoline_faces(&self, points: Vec<HashMap<OnEdge, Vec<PVec3>>>) -> Result<Vec<HashMap<usize, Vec<[NodeOnEdge; 2]>>>> {
-        let mut result = vec![HashMap::new(); points.len()];
+    fn connect_isoline_faces(&self, points: Vec<DetHashMap<OnEdge, Vec<PVec3>>>) -> Result<Vec<DetHashMap<usize, Vec<[NodeOnEdge; 2]>>>> {
+        let mut result = vec![DetHashMap::default(); points.len()];
         for (row, isoline) in points.into_iter().enumerate() {
             let mut faces = HashSet::new();
             for key in isoline.keys() {
@@ -157,7 +157,7 @@ impl Processor {
         Ok(result)
     }
 
-    fn connect_isoline_points(&self, faces: Vec<HashMap<usize, Vec<[NodeOnEdge; 2]>>>) -> Result<Vec<Vec<Vec<NodeOnEdge>>>> {
+    fn connect_isoline_points(&self, faces: Vec<DetHashMap<usize, Vec<[NodeOnEdge; 2]>>>) -> Result<Vec<Vec<Vec<NodeOnEdge>>>> {
         let mut result = vec![Vec::new(); faces.len()];
         for (i, mut isoline) in faces.into_iter().enumerate() {
             while let Some(face) = isoline.keys().next() {

@@ -1,15 +1,14 @@
 // This file is not AI generated
 
-use std::matches;
-
 use three_d::egui::emath::Float;
 
 use crate::process::isolines::OnEdge;
 
 use super::*;
 
-pub type IsolinesMap = HashMap<OnEdge, Vec<(PVec3, (usize, usize, usize))>>;
+pub type IsolinesMap = DetHashMap<OnEdge, Vec<(PVec3, (usize, usize, usize))>>;
 
+#[derive(Clone, PartialEq)]
 pub struct CircleTree {
     pub circle: Vec<NodeOnEdge>,
     pub circle_len: f32,
@@ -132,7 +131,7 @@ impl Processor {
     }
 
     pub(super) fn get_isoline_map(&self, isolines: &[Vec<(f32, Vec<NodeOnEdge>)>]) -> IsolinesMap {
-        let mut map = HashMap::new();
+        let mut map = DetHashMap::default();
         for (i, isoline) in isolines.iter().enumerate() {
             for (j, (_circle_len, circle)) in isoline.iter().enumerate() {
                 for (k, node) in circle.iter().enumerate() {

@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use super::*;
 
 impl Processor {
-    pub fn dijkstras(&self, epsilon: f32, seed_pos: PVec3, seed_face: usize) -> Result<(HashMap<Node, (f32, Option<Node>)>, Node)> {
+    pub fn dijkstras(&self, epsilon: f32, seed_pos: PVec3, seed_face: usize) -> Result<(DijkstrasMap, Node)> {
         // Initialise the frontier with the points touching the same face
         let mut frontier = Frontier::new();
         for node in self.get_nodes_connected_to_face(seed_face, epsilon) {
@@ -161,7 +161,7 @@ impl Processor {
     pub fn get_nodes_connected_to_face(&self, face_index: usize, epsilon: f32) -> Vec<Node> {
         // Find the verticies that lie on these faces
         let verticies = self.model.mesh.faces[face_index].vertices;
-
+        
         // Use the verticies in order to find the vertex-pairs describing the edges of the face
         let v1 = verticies[0];
         let v2 = verticies[1];
@@ -173,9 +173,6 @@ impl Processor {
             let posses = self.spaced_points(a, b, epsilon);
             posses.into_iter().map(move |pos| Node { connectivity: Connectivity::on_edge(a, b), pos })
         }).collect();
-
-        // This function does not produce duplicates.
-
 
         let verticies = verticies.into_iter().map(|index|
             Node { connectivity: Connectivity::OnVertex(index), pos: self.model.mesh.vertices[index].into() }

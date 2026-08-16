@@ -245,6 +245,8 @@ impl Viewer {
 
                 self.model = Arc::new(model);
                 self.processor = ProcessorState::None;
+                self.self_sender.send(DisplayCommand::ClearAll).unwrap();
+                self.mesh_visible = true;
 
                 #[cfg(target_arch = "wasm32")]                
                 crate::web_glue::push_server_message(&crate::web_glue::ServerMessage::MeshLoaded {
@@ -470,6 +472,7 @@ fn start_command(model: Arc<Model>, self_sender: &UnboundedSender<DisplayCommand
             }
         },
         ProcessorState::Finished(output, processor) => ProcessorState::Finished(output, processor),
+        // Command gets eaten if its currently running one
         #[cfg(not(target_arch = "wasm32"))]
         ProcessorState::Running(handle) => ProcessorState::Running(handle),
     }
