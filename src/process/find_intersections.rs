@@ -81,15 +81,35 @@ impl Processor {
             let mut connections = Vec::new();
 
             for ((i, j), circle) in circles {
-                for [(a, k1), (b, k2)] in circle.array_windows().map(|[a, b]| [a, b]).chain(Some([circle.last().unwrap(), circle.first().unwrap()])) {
-                    if (k1 + 1) % isolines[i][j].1.len() == *k2 && let Some(intersection) = segment_intersect(face_normal, a.pos, b.pos, pos, node.pos) {
-                        connections.push(((i, j), intersection, [(*a, *k1), (*b, *k2)]));
+                for [(n1, k1), (n2, k2)] in circle.array_windows().map(|[a, b]| [a, b]).chain(Some([circle.last().unwrap(), circle.first().unwrap()])) {
+                    if (k1 + 1) % isolines[i][j].1.len() == *k2 && let Some(intersection) = segment_intersect(face_normal, n1.pos, n2.pos, pos, node.pos) {
+                        connections.push(((i, j), intersection, [(*n1, *k1), (*n2, *k2)]));
+                    } else if let Connectivity::OnEdge(a, b) = node.connectivity && n1.edge == (OnEdge{a, b}) && n2.edge == (OnEdge{a, b}) && // If the node lies on the same edge
+                    let distance = (n1.pos - n2.pos).magnitude_squared() && // And it is closer to both nodes
+                    (n1.pos - node.pos).magnitude_squared() < distance && (n2.pos - node.pos).magnitude_squared() < distance {
+                        // This secondary check is needed due to floating point imprecision.
+                        // Without it, intersections could be missed
+                        connections.push(((i, j), node.pos, [(*n1, *k1), (*n2, *k2)]));
                     }
                 }
             }
 
             Ok(connections)
         }
+    }
+
+    /// Takes hashmap representation of isolines and the segment (pos1 face) - (pos2 face).
+    /// current_isoline is used to filter for only intersections with the previous isoline.
+    /// The data inside the return type Ok variant resembles all intersections found: ((i, j), pos, [(p, k); 2]).
+    /// The k values are the ks of the points of intersection. k1 < k2 (unless k1 - k2 is on a boundary).
+    /// p1 and p2 is the node segment that it intersects with. pos is the position of intersection.
+    /// # Panics
+    /// This panics if self.info is None
+    // This just calls self.find_face_intersections with a specific, invalid node. This is just a mathematical
+    // trick that works because we are never checking the connectivity of the node in self.find_face_intersections,
+    // if that connectivity is OnVertex.
+    pub(super) fn find_double_face_intersections(&self, map: &IsolinesMap, face: usize, pos1: PVec3, pos2: PVec3, intersecting_isoline: Option<usize>) -> Result<Vec<((usize, usize), PVec3, [(NodeOnEdge, usize); 2])>> {
+        self.find_face_intersections(map, &Node { connectivity: Connectivity::OnVertex(0), pos: pos1 }, face, pos2, intersecting_isoline)
     }
 
     /// Takes hashmap representation of isolines and the segment node1 - node2.

@@ -199,7 +199,6 @@ impl Processor {
                         self.sender.send(DisplayCommand::Point { pos: b.pos.into(), radius: self.model.radius * 0.03, colour: Srgba::GREEN, depth: false, group: Group::Backtrack }).unwrap();
                         let [a, b, c] = self.model.mesh.faces[face].vertices.map(|i| self.model.mesh.vertices[i]);
                         self.sender.send(DisplayCommand::Face { a, b, c, colour: Srgba::BLUE, depth: true, group: Group::Backtrack }).unwrap();
-                        // std::thread::sleep(std::time::Duration::from_secs_f32(1.0));
                         self.sender.send(DisplayCommand::Clear(Group::Backtrack)).unwrap();
                     }
                     // A phase difference POTENTIALLY improves this section.
@@ -245,18 +244,24 @@ impl Processor {
             // so we walk backwards until finding the first point we DON'T want,
             // before pushing back to the first point we DO want.
 
+            let mut tests_left = next.circle.len();
+            let rev_next_v = next_v;
             if (next_hv.pos - next_h.pos).magnitude_squared() < (next_hv.pos - curr_point.pos).magnitude_squared() {
                 while (next_hv.pos - next_h.pos).magnitude_squared() < (next_hv.pos - curr_point.pos).magnitude_squared() {
+                    if tests_left == 0 { next_v = rev_next_v; break; } else { tests_left -= 1; }
                     next_hv = next_v;
                     next_v = self.move_on_circle(&next.circle, next_v.isoline_index, next_v.pos, -next_scw)?;
                 }
 
                 // This is the "push-back"
-                next_v = next_hv;
-                next_hv = self.move_on_circle(&next.circle, next_v.isoline_index, next_v.pos, next_scw)?;
+                if tests_left != 0 {
+                    next_v = next_hv;
+                    next_hv = self.move_on_circle(&next.circle, next_v.isoline_index, next_v.pos, next_scw)?;
+                }
             } else {
                 // Other way around, no push back needed
                 while (next_hv.pos - next_h.pos).magnitude_squared() > (next_hv.pos - curr_point.pos).magnitude_squared() {
+                    if tests_left == 0 { next_v = rev_next_v; break; } else { tests_left -= 1; }
                     next_v = next_hv;
                     next_hv = self.move_on_circle(&next.circle, next_v.isoline_index, next_v.pos, next_scw)?;
                 }
@@ -291,9 +296,9 @@ impl Processor {
             while curr_stitch_num < curr_stitches {
                 stop += 1;
                 assert_internal::<13>(stop < 100_000, None)?;
-                // std::thread::sleep(std::time::Duration::from_secs_f32(0.3));
                 // self.sender.send(DisplayCommand::Clear(Group::Stitch)).unwrap();
-                if (next_hv.pos - next_h.pos).magnitude_squared() < (next_hv.pos - curr_point.pos).magnitude_squared() {
+                if (next_hv.pos - next_h.pos).magnitude_squared() <= (next_hv.pos - curr_point.pos).magnitude_squared() || 
+                (next_v.pos - curr_point.pos).magnitude_squared() <  (next_hv.pos - curr_point.pos).magnitude_squared() {
                     curr_stitch_num += 1.0;
                     let prev_point = curr_point.pos;
                     curr_point = next_h;
@@ -410,14 +415,14 @@ impl Processor {
     fn get_rev_trav_intersection(&self, start: PVec3, start_face: usize, isolines_map: &IsolinesMap, current_isoline: usize) -> Result<(PVec3, f32, (usize, usize, usize))> {
         let info = self.get_info_unwrapped();
         let nodes = &info.nodes;
+        let seed_face = info.seed_face;
+        let seed_point = info.seed_point;
 
         let (geo_len, Some(mut prev)) = self.get_face_point_rev_trav(start, start_face) else {
-            if current_isoline == 0 {
-                return Err(Error {
-                    issue: "Mesh wasn't dense enough near seed point.".to_string(),
-                    fault: ErrorFault::File,
-                    solution: "Chose a denser STL file, a different seed point, or increase relative stitch size (by decreasing diameter or increasing hook size).",
-                });
+            // This has been guarunteed by inspection
+            assert_eq!(start_face, seed_face);
+            if let Some(((i, j), pos, [(_, k), _])) = self.find_double_face_intersections(isolines_map, start_face, seed_point, start, Some(current_isoline))?.pop() {
+                return Ok((pos, (pos - start).magnitude(), (i, j, k)))
             } else {
                 return Err(failed_assert_internal::<14>(None))
             }
@@ -436,6 +441,8 @@ impl Processor {
             return Ok((intersection, (intersection - start).magnitude(), (i, j, k)))
         };
 
+        let mut prev_geo_len = geo_len;
+
         let (((i, j), (node, k), poss), geo1, geo2) = loop {
             self.sender.send(DisplayCommand::Point {
                 pos: prev.pos.into(),
@@ -444,20 +451,23 @@ impl Processor {
                 depth: false,
                 group: Group::Backtrack,
             }).unwrap();
-            // std::thread::sleep(std::time::Duration::from_secs_f32(1.0));
             self.sender.send(DisplayCommand::Clear(Group::Backtrack)).unwrap();
-            let (_, Some(curr)) = nodes.get(&prev).unwrap() else {
-                self.sender.send(DisplayCommand::Clear(Group::Backtrack)).unwrap();
-                self.sender.send(DisplayCommand::Point {
-                    pos: prev.pos.into(),
-                    radius: self.model.radius * 0.04,
-                    colour: Srgba::RED,
-                    depth: false,
-                    group: Group::Backtrack,
-                }).unwrap();
-                // std::thread::sleep(std::time::Duration::from_secs_f32(1.0));
-                // this happens due to a missed intersection.
-                return Err(failed_assert_internal::<16>(None));
+            let (curr_geo_len, Some(curr)) = nodes.get(&prev).unwrap() else {
+                if let Some(((i, j), intersection, [(_, k), _])) = self.find_face_intersections(isolines_map, &prev, info.seed_face, info.seed_point, Some(current_isoline))?.pop() {
+                    // For low mesh density near seed point
+                    return Ok((intersection, (prev.pos - intersection).magnitude() + geo_len - prev_geo_len, (i, j, k)))
+                } else {
+                    self.sender.send(DisplayCommand::Clear(Group::Backtrack)).unwrap();
+                    self.sender.send(DisplayCommand::Point {
+                        pos: prev.pos.into(),
+                        radius: self.model.radius * 0.04,
+                        colour: Srgba::RED,
+                        depth: false,
+                        group: Group::Backtrack,
+                    }).unwrap();
+                    // this happens due to a missed intersection.
+                    return Err(failed_assert_internal::<16>(Some(format!("{start:?}, {start_face}"))));
+                };
             };
 
             self.sender.send(DisplayCommand::Edge {
@@ -471,6 +481,7 @@ impl Processor {
 
             let Some(intersection) = self.find_intersections(isolines_map, &prev, curr, Some(current_isoline))?.pop() else {
                 prev = *curr;
+                prev_geo_len = *curr_geo_len;
                 continue;
             };
 

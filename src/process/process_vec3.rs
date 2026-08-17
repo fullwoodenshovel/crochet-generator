@@ -71,6 +71,12 @@ impl MulAssign<f32> for PVec3 {
 }
 
 impl PVec3 {
+    pub fn new(x: f32, y: f32, z: f32) -> Self {
+        Self {
+            vec: [x, y, z]
+        }
+    }
+
     pub fn splat(value: f32) -> Self {
         Self { vec: [value; 3] }
     }

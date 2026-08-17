@@ -225,7 +225,9 @@ impl Processor {
 
     fn generate_from_seed(&mut self, position: Vector<f32>, face_index: usize, calculator: FixedHookCalculator) -> Result<Output> {
         println!("{position:?} {face_index}");
+        #[cfg(debug_assertions)]
         let position = Vector([70.41322, 5.5, 68.19897]);
+        #[cfg(debug_assertions)]
         let face_index = 0;
         const STITCH_SIZE_EPSILON_MULTIPLIER: f32 = 0.25;
         
