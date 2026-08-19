@@ -4,6 +4,171 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
     <title>STL Upload Demo</title>
+
+    <!--
+      Error reporting bootstrap.
+
+      This is a CLASSIC script (not type="module") placed before everything
+      else, deliberately:
+
+        * It runs immediately, so handlers exist before the module's imports
+          are even fetched. A module whose import 404s, or which has a syntax
+          error, never executes its body at all — so handlers installed
+          *inside* the module would never be registered, and the failure would
+          be completely silent.
+        * It has no imports of its own, so it cannot fail the same way.
+        * #console-log doesn't exist yet at this point (it's later in the
+          document), so messages are buffered and flushed once the DOM is
+          ready.
+    -->
+    <script>
+    (function () {
+        // winit throws a sentinel exception on EVERY event to unwind the
+        // stack back to the browser. It is normal operation, not an error.
+        // Anything that slips past this filter floods the log, one line per
+        // pointer move.
+        var BENIGN = [
+            'Using exceptions for control flow',
+            "don't mind me",
+        ];
+        function isBenign(t) {
+            for (var i = 0; i < BENIGN.length; i++) {
+                if (t.indexOf(BENIGN[i]) !== -1) return true;
+            }
+            return false;
+        }
+
+        // Extract readable text from a thrown value.
+        //
+        // IMPORTANT: Firefox's error.stack contains ONLY frames — unlike
+        // Chrome, it does not prefix the message. Reading `.stack` alone
+        // therefore silently drops the message, which is where both the
+        // panic text and winit's benign sentinel marker live. Always
+        // combine the two.
+        function errText(e) {
+            if (!e) return String(e);
+            if (e instanceof Error || (e && typeof e.message === 'string')) {
+                var msg = e.message || '';
+                var stack = e.stack || '';
+                if (stack && stack.indexOf(msg) === -1) return msg + '\n' + stack;
+                return stack || msg;
+            }
+            return String(e);
+        }
+
+        var buffer = [];          // messages logged before #console-log exists
+        var logEl = null;
+
+        // The module overwrites this with its own richer renderer once it
+        // loads. Until then (and forever, if the module never loads) this
+        // basic version is what reports problems.
+        var lastLine = null;      // for collapsing repeats
+        var lastLineEl = null;
+        var lastLineCount = 1;
+
+        window.__log = function (text, cls) {
+            if (!logEl) logEl = document.getElementById('console-log');
+            if (!logEl) { buffer.push([text, cls]); return; }
+
+            // Collapse consecutive identical messages into "(xN)" rather than
+            // appending thousands of rows — an error inside an event handler
+            // or render loop repeats every frame.
+            if (text === lastLine && lastLineEl) {
+                lastLineCount++;
+                lastLineEl.textContent = text + '  (x' + lastLineCount + ')';
+                logEl.scrollTop = logEl.scrollHeight;
+                return;
+            }
+
+            var div = document.createElement('div');
+            div.className = cls || 'log-error';
+            div.textContent = text;
+            logEl.appendChild(div);
+            logEl.scrollTop = logEl.scrollHeight;
+
+            lastLine = text;
+            lastLineEl = div;
+            lastLineCount = 1;
+        };
+
+        function flush() {
+            logEl = document.getElementById('console-log');
+            if (!logEl) return;
+            for (var i = 0; i < buffer.length; i++) {
+                window.__log(buffer[i][0], buffer[i][1]);
+            }
+            buffer.length = 0;
+        }
+        document.addEventListener('DOMContentLoaded', flush);
+
+        window.__panicSeen = null;
+
+        // Rust panics arrive here: console_error_panic_hook reports through
+        // console.error, and panics fire inside requestAnimationFrame
+        // callbacks where no try/catch of ours is on the stack.
+        var _err = console.error.bind(console);
+        console.error = function () {
+            _err.apply(null, arguments);
+            try {
+                var parts = [];
+                for (var i = 0; i < arguments.length; i++) {
+                    var a = arguments[i];
+                    parts.push(errText(a));
+                }
+                var text = parts.join(' ');
+                if (isBenign(text)) return;
+
+                if (text.indexOf('panicked at') !== -1) {
+                    if (text === window.__panicSeen) return;
+                    window.__panicSeen = text;
+                    if (window.__logPanic) window.__logPanic(text);
+                    else window.__log(text, 'log-error');
+                } else {
+                    window.__log(text, 'log-error');
+                }
+            } catch (e) { /* the logger must never throw here */ }
+        };
+
+        // Uncaught exceptions — including module load/parse failures, which
+        // is the case this whole script exists for.
+        window.addEventListener('error', function (e) {
+            // A failed <script>/import fires an error event on the element
+            // itself, with no e.error and a target that isn't window.
+            if (e.target && e.target !== window && e.target.tagName) {
+                var src = e.target.src || e.target.href || '(unknown)';
+                window.__log('Failed to load ' + e.target.tagName.toLowerCase()
+                             + ': ' + src, 'log-error');
+                return;
+            }
+            var text = e.error ? errText(e.error) : String(e.message || 'unknown error');
+            if (isBenign(text)) return;
+            if (text.indexOf('unreachable executed') !== -1 && window.__panicSeen) return;
+            window.__log('Uncaught error: ' + text, 'log-error');
+        }, true);   // capture phase: resource errors don't bubble
+
+        window.addEventListener('unhandledrejection', function (e) {
+            var text = errText(e.reason);
+            if (isBenign(text)) return;
+            window.__log('Unhandled rejection: ' + text, 'log-error');
+        });
+
+        // If the module never runs, nothing will have replaced __log with the
+        // richer version — treat that as a failure and say so.
+        window.addEventListener('load', function () {
+            setTimeout(function () {
+                if (!window.__moduleStarted) {
+                    window.__log(
+                        'The page script failed to start. This usually means a '
+                        + 'missing or broken ./static/crochet-generator.js, a '
+                        + 'syntax error in the page, or a network error. '
+                        + 'Check the browser console for more info.',
+                        'log-error');
+                }
+            }, 0);
+        });
+    })();
+    </script>
+
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -75,9 +240,9 @@
             color: #666;
         }
 
-        #reopen-btn {
+        #reopen-btn,
+        #seed-point-btn {
             position: absolute;
-            top: 8px;
             right: 8px;
             z-index: 10;
             background: #222;
@@ -89,8 +254,28 @@
             font-size: 12px;
             cursor: pointer;
         }
-        #reopen-btn:hover { color: #e0e0e0; border-color: #555; }
-        #reopen-btn.hidden { display: none; }
+
+        #reopen-btn { top: 8px; }
+        #seed-point-btn { top: 43px; }
+
+        #reopen-btn:hover,
+        #seed-point-btn:hover { color: #e0e0e0; border-color: #555; }
+
+        #reopen-btn.hidden,
+        #seed-point-btn.hidden { display: none; }
+
+        /* toggled-on state */
+        #seed-point-btn.active {
+            background: #3db8ff;
+            color: #0d0d0d;
+            border-color: #3db8ff;
+            font-weight: bold;
+        }
+        #seed-point-btn.active:hover {
+            background: #9bd9ff;
+            border-color: #9bd9ff;
+            color: #0d0d0d;
+        }
 
         #side-panel {
             flex: 1 1 40%;
@@ -246,6 +431,36 @@
         .log-error  { color: #ff7070; white-space: pre-wrap; }
         .log-info   { color: #ccc;    white-space: pre-wrap; font-style: italic; }
 
+        .log-panic {
+            color: #ffb0b0;
+            white-space: pre-wrap;
+            background: #2a1414;
+            border-left: 3px solid #ff7070;
+            border-radius: 3px;
+            padding: 6px 8px;
+        }
+        .log-panic .panic-title {
+            display: block;
+            font-weight: bold;
+            color: #ff7070;
+            margin-bottom: 4px;
+        }
+        .log-panic details { margin-top: 4px; }
+        .log-panic summary {
+            cursor: pointer;
+            color: #c08080;
+            font-size: 12px;
+        }
+        .log-panic pre {
+            margin-top: 4px;
+            max-height: 180px;
+            overflow: auto;
+            font-size: 11px;
+            color: #a08888;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
         #input-row {
             display: flex;
             align-items: center;
@@ -285,6 +500,7 @@
         </div>
 
         <button id="reopen-btn" class="hidden">Upload a new file</button>
+        <button id="seed-point-btn" class="hidden active" aria-pressed="true">Change seed point</button>
     </div>
 
     <div id="side-panel">
@@ -324,7 +540,7 @@
 
         <button id="copy-output-btn" disabled>Copy last output</button>
         <div id="console-log">
-            <div class="log-info">Idle. No WASM module loaded yet.</div>
+            <!-- <div class="log-info">Idle. No WASM module loaded yet.</div> -->
         </div>
     </div>
 </div>
@@ -333,12 +549,21 @@
 <script type="module">
     import init, * as wasm from './static/crochet-generator.js';
 
+    // Tell the bootstrap script (in <head>) that the module body ran. If this
+    // never happens, the bootstrap reports the module as failed to start.
+    window.__moduleStarted = true;
+
     let wasmReady = null;
     function loadWasm() {
         if (!wasmReady) {
             wasmReady = init().then(() => {
-                logLine('WASM module ready.', 'log-info');
+                // logLine('WASM module ready.', 'log-info');
                 setInterval(pollOutgoing, 16);
+            }).catch((err) => {
+                logLine('Failed to load the renderer: ' + (err && err.message || err),
+                        'log-error');
+                wasmReady = null;   // allow a retry on the next upload
+                throw err;
             });
         }
         return wasmReady;
@@ -350,6 +575,7 @@
     const canvas              = document.getElementById("glcanvas");
     const dropZone            = document.getElementById('drop-zone');
     const reopenBtn           = document.getElementById('reopen-btn');
+    const seedPointBtn      = document.getElementById('seed-point-btn');
     const copyBtn             = document.getElementById('copy-output-btn');
     const generateBtn         = document.getElementById('generate-btn');
     const hookSizeInput       = document.getElementById('hook-size-input');
@@ -382,6 +608,65 @@
     }
 
     // ---------------------------------------------------------------
+    // Panic rendering.
+    //
+    // The <head> bootstrap already installed console.error / error /
+    // unhandledrejection handlers before this module was even fetched — that
+    // is what catches a failed import or syntax error, which would otherwise
+    // stop this whole module body from running. Here we only *upgrade* the
+    // renderer: the bootstrap calls window.__logPanic if it exists, so
+    // panics get the collapsible-backtrace treatment instead of one long line.
+    // ---------------------------------------------------------------
+    const isBenign = (text) => text.includes('Using exceptions for control flow');
+
+    window.__logPanic = function (fullText) {
+        // console_error_panic_hook formats as:
+        //   panicked at <file>:<line>:<col>: <message> Stack: <trace>
+        const stackIdx = fullText.indexOf('Stack:');
+        const head = (stackIdx >= 0 ? fullText.slice(0, stackIdx) : fullText).trim();
+        const trace = stackIdx >= 0 ? fullText.slice(stackIdx + 6).trim() : '';
+
+        const wrap = document.createElement('div');
+        wrap.className = 'log-panic';
+
+        const title = document.createElement('span');
+        title.className = 'panic-title';
+        title.textContent = 'The renderer crashed (Rust panic)';
+        wrap.appendChild(title);
+
+        const body = document.createElement('span');
+        body.textContent = head;
+        wrap.appendChild(body);
+
+        if (trace) {
+            const details = document.createElement('details');
+            const summary = document.createElement('summary');
+            summary.textContent = 'Show backtrace';
+            const pre = document.createElement('pre');
+            pre.textContent = trace;
+            details.appendChild(summary);
+            details.appendChild(pre);
+            wrap.appendChild(details);
+        }
+
+        const note = document.createElement('span');
+        note.className = 'log-info';
+        note.textContent = 'Reload the page to recover.';
+        wrap.appendChild(note);
+
+        logEl.appendChild(wrap);
+        logEl.scrollTop = logEl.scrollHeight;
+    };
+
+    // Route the bootstrap's plain logger through this module's logLine so
+    // buffered and future messages share one code path.
+    // NOTE: deliberately NOT overriding window.__log here. The bootstrap's
+    // version collapses consecutive duplicates into "(xN)", which matters
+    // because an error inside an event handler repeats every frame.
+    // logLine stays available for this module's own one-off messages.
+
+
+    // ---------------------------------------------------------------
     // STL upload -> stl_alloc / stl_load
     // ---------------------------------------------------------------
     function sendStlToWasm(bytes) {
@@ -391,7 +676,7 @@
         } catch (err) {
             const msg = String(err && err.message || err);
             if (msg.includes("Using exceptions for control flow")) {
-                logLine('Renderer running.', 'log-output');
+                // logLine('Renderer running.', 'log-output');
                 return;
             }
             logLine('Error sending file to WASM: ' + msg, 'log-error');
@@ -404,7 +689,7 @@
             logLine(`"${file.name}" doesn't look like an .stl file`, 'log-error');
             return;
         }
-        logLine(`Reading ${file.name} (${file.size} bytes)...`, 'log-info');
+        // logLine(`Reading ${file.name} (${file.size} bytes)...`, 'log-info');
         let bytes;
         try {
             bytes = new Uint8Array(await file.arrayBuffer());
@@ -412,7 +697,12 @@
             logLine('Failed to read file: ' + err.message, 'log-error');
             return;
         }
-        await loadWasm();
+        try {
+            await loadWasm();
+        } catch (_) {
+            return;   // loadWasm already logged the reason
+        }
+        setSeedPointMode(true);
         sendStlToWasm(bytes);
     }
 
@@ -437,8 +727,21 @@
     // JSON command channel -> json_alloc / json_submit
     // ---------------------------------------------------------------
     async function sendJsonToWasm(obj) {
-        await loadWasm();
-        wasm.json_submit(JSON.stringify(obj));
+        try {
+            await loadWasm();
+        } catch (_) {
+            return;   // already logged
+        }
+        try {
+            wasm.json_submit(JSON.stringify(obj));
+        } catch (err) {
+            const msg = String(err && err.message || err);
+            if (isBenign(msg)) return;
+            // A panic inside the command handler surfaces here; the hook has
+            // already logged the detail, so keep this line short.
+            logLine('Command failed: ' + (obj && obj.type ? obj.type : '?')
+                    + ' — ' + msg, 'log-error');
+        }
     }
 
     if (inputEl) {
@@ -463,13 +766,32 @@
     function showDropZone() {
         dropZone.classList.remove('hidden');
         reopenBtn.classList.add('hidden');
+        seedPointBtn.classList.add('hidden');
+        setSeedPointMode(false);   // don't leave the toggle on behind the drop zone
     }
     function hideDropZone() {
         dropZone.classList.add('hidden');
         reopenBtn.classList.remove('hidden');
+        seedPointBtn.classList.remove('hidden');
     }
 
     reopenBtn.addEventListener('click', showDropZone);
+
+    // ---------------------------------------------------------------
+    // "Change seed point" toggle
+    // ---------------------------------------------------------------
+    let seedPointMode = true;
+
+    function setSeedPointMode(on) {
+        seedPointMode = on;
+        seedPointBtn.classList.toggle('active', on);
+        seedPointBtn.setAttribute('aria-pressed', String(on));
+        sendJsonToWasm({ type: 'set_seed_point_mode', enabled: seedPointMode });
+    }
+
+    seedPointBtn.addEventListener('click', () => {
+        setSeedPointMode(!seedPointMode);
+    });
 
     // ---------------------------------------------------------------
     // Settings panel: General <-> Measurements
@@ -572,8 +894,14 @@
     // Generate pattern button
     // ---------------------------------------------------------------
     generateBtn.addEventListener('click', async () => {
+        setSeedPointMode(false);
         setGenerating(true);
-        await loadWasm();
+        try {
+            await loadWasm();
+        } catch (_) {
+            setGenerating(false);   // don't leave the button stuck
+            return;
+        }
         await nextPaint();
         // TODO: swap "type" and payload shape to match your actual
         // ClientMessage variant for triggering generation — the only
@@ -624,6 +952,9 @@
                     setLastOutput(commands);
                 }
                 setGenerating(false);
+                break;
+            case 'debug':
+                logLine('Debug: ' + msg.message, 'log-info');
                 break;
             default:
                 logLine('Unhandled message: ' + JSON.stringify(msg), 'log-info');

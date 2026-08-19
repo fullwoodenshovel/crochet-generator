@@ -2,7 +2,6 @@
 // All AI used in this file is documented.
 
 use std::cmp::Ordering;
-use std::ops::Deref;
 
 use three_d::Srgba;
 
@@ -139,15 +138,15 @@ impl Processor {
 
             for [a, b] in result.array_windows().map(|[a, b]| [a, b]).chain(Some([result.last().unwrap(), result.first().unwrap()])) {
                 self.sender.send(DisplayCommand::Edge {
-                    a: a.pos.into(),
-                    b: b.pos.into(),
+                    a: a.pos,
+                    b: b.pos,
                     thickness: self.model.radius * 0.02,
                     colour: Srgba::BLUE,
                     depth: true,
                     group: Group::StitchRow,
                 }).unwrap();
                 self.sender.send(DisplayCommand::Point {
-                    pos: a.pos.into(),
+                    pos: a.pos,
                     radius: self.model.radius * 0.025,
                     colour: Srgba::RED,
                     depth: true,
@@ -195,9 +194,9 @@ impl Processor {
                 {
                     {
                         let face = self.face_connected_to_edges(a.edge, b.edge)?;
-                        self.sender.send(DisplayCommand::Point { pos: a.pos.into(), radius: self.model.radius * 0.03, colour: Srgba::GREEN, depth: false, group: Group::Backtrack }).unwrap();
-                        self.sender.send(DisplayCommand::Point { pos: b.pos.into(), radius: self.model.radius * 0.03, colour: Srgba::GREEN, depth: false, group: Group::Backtrack }).unwrap();
-                        let [a, b, c] = self.model.mesh.faces[face].vertices.map(|i| self.model.mesh.vertices[i]);
+                        self.sender.send(DisplayCommand::Point { pos: a.pos, radius: self.model.radius * 0.03, colour: Srgba::GREEN, depth: false, group: Group::Backtrack }).unwrap();
+                        self.sender.send(DisplayCommand::Point { pos: b.pos, radius: self.model.radius * 0.03, colour: Srgba::GREEN, depth: false, group: Group::Backtrack }).unwrap();
+                        let [a, b, c] = self.model.mesh.faces[face].vertices.map(|i| self.model.mesh.vertices[i].into());
                         self.sender.send(DisplayCommand::Face { a, b, c, colour: Srgba::BLUE, depth: true, group: Group::Backtrack }).unwrap();
                         self.sender.send(DisplayCommand::Clear(Group::Backtrack)).unwrap();
                     }
@@ -268,8 +267,8 @@ impl Processor {
             }
 
             self.sender.send(DisplayCommand::Edge {
-                a: curr_point.pos.into(),
-                b: next_v.pos.into(),
+                a: curr_point.pos,
+                b: next_v.pos,
                 thickness: self.model.radius * 0.02,
                 colour: Srgba::WHITE,
                 depth: true,
@@ -277,7 +276,7 @@ impl Processor {
             }).unwrap();
 
             self.sender.send(DisplayCommand::Point {
-                pos: curr_point.pos.into(),
+                pos: curr_point.pos,
                 radius: self.model.radius * 0.02,
                 colour: Srgba::WHITE,
                 depth: true,
@@ -339,7 +338,7 @@ impl Processor {
 
 
         self.sender.send(DisplayCommand::Point {
-            pos: curr_point.pos.into(),
+            pos: curr_point.pos,
             radius: self.model.radius * 0.02,
             colour: Srgba::WHITE,
             depth: true,
@@ -445,7 +444,7 @@ impl Processor {
 
         let (((i, j), (node, k), poss), geo1, geo2) = loop {
             self.sender.send(DisplayCommand::Point {
-                pos: prev.pos.into(),
+                pos: prev.pos,
                 radius: self.model.radius * 0.04,
                 colour: Srgba::GREEN,
                 depth: false,
@@ -459,7 +458,7 @@ impl Processor {
                 } else {
                     self.sender.send(DisplayCommand::Clear(Group::Backtrack)).unwrap();
                     self.sender.send(DisplayCommand::Point {
-                        pos: prev.pos.into(),
+                        pos: prev.pos,
                         radius: self.model.radius * 0.04,
                         colour: Srgba::RED,
                         depth: false,
@@ -471,8 +470,8 @@ impl Processor {
             };
 
             self.sender.send(DisplayCommand::Edge {
-                a: prev.pos.into(),
-                b: curr.pos.into(),
+                a: prev.pos,
+                b: curr.pos,
                 thickness: self.model.radius * 0.03,
                 colour: Srgba::GREEN,
                 depth: false,
@@ -496,7 +495,7 @@ impl Processor {
             };
 
             self.sender.send(DisplayCommand::Point {
-                pos: pos.into(),
+                pos,
                 radius: self.model.radius * 0.04,
                 colour: Srgba::BLUE,
                 depth: false,

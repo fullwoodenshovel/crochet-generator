@@ -29,7 +29,7 @@ pub enum Format {
     /// CAREFUL - check docs for more information
     /// Close off this row with a slip stitch.
     /// You should have <m> stitches in this row.
-    /// --- ROW <n> ---
+    /// --- ROUND <n> ---
     Row(usize, usize),
     // Close off the final row with a slip stitch.
     // You should have <n> stitches in this row.
@@ -138,7 +138,7 @@ impl Format {
 
     pub fn get_conf(&self) -> HighlightConf {
         match self {
-            Format::Row(n, m) => HighlightConf::new(String::new(), format!(".\nThis row should have {m} stitches.\n--- ROW {n} ---\n"), false),
+            Format::Row(n, m) => HighlightConf::new(String::new(), format!(".\nThis row should have {m} stitches.\n--- ROUND {n} ---\n"), false),
             Format::Final(n) => HighlightConf::new(String::new(), format!(".\nThis row should have {n} stitches."), false),
             _ => HighlightConf::default()
         }

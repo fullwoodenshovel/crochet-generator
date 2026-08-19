@@ -173,6 +173,20 @@ impl DebugRenderer {
        RENDER STREAMS
     ============================================================ */
 
+    pub fn seed(&self) -> impl Iterator<Item = &dyn Object> {
+        self.groups.get(&(crate::process::Group::Seed as usize)).into_iter().flat_map(|group|
+            group
+            .points_occluded
+            .iter()
+            .map(|c| &c.mesh as &dyn Object)
+            .chain(group.lines_occluded.iter().map(|c| &c.mesh as &dyn Object))
+            .chain(group.faces_occluded.iter().map(|c| &c.mesh as &dyn Object))
+            .chain(group.points_overlay.iter().map(|c| &c.mesh as &dyn Object))
+            .chain(group.lines_overlay.iter().map(|c| &c.mesh as &dyn Object))
+            .chain(group.faces_overlay.iter().map(|c| &c.mesh as &dyn Object))
+        )
+    }
+
     pub fn occluded(&self) -> impl Iterator<Item = &dyn Object> {
         self.groups.values().flat_map(|group| {
             group

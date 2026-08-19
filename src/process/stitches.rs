@@ -4,6 +4,7 @@ use std::{collections::VecDeque, fmt::{Debug, Display}, ops::{Deref, DerefMut}};
 
 use crate::{process::{Group, Processor, human_readable::*, intermediate::{Highlight, InternalStitchCommand, StitchPoint}}, viewer::DisplayCommand};
 
+#[cfg(not(target_arch = "wasm32"))]
 use colored::Colorize;
 use three_d::Srgba;
 
@@ -274,22 +275,22 @@ impl Processor {
 
         for highlight in highlights {
             self.sender.send(DisplayCommand::Edge {
-                a: highlight.0.pos.into(),
-                b: highlight.1.pos.into(),
+                a: highlight.0.pos,
+                b: highlight.1.pos,
                 thickness: self.model.radius * 0.02,
                 colour: Srgba::RED,
                 depth: false,
                 group: Group::HighlightedStitch
             }).unwrap();
             self.sender.send(DisplayCommand::Point {
-                pos: highlight.0.pos.into(),
+                pos: highlight.0.pos,
                 radius: self.model.radius * 0.02,
                 colour: Srgba::RED,
                 depth: false,
                 group: Group::HighlightedStitch
             }).unwrap();
             self.sender.send(DisplayCommand::Point {
-                pos: highlight.1.pos.into(),
+                pos: highlight.1.pos,
                 radius: self.model.radius * 0.02,
                 colour: Srgba::RED,
                 depth: false,
@@ -305,8 +306,8 @@ impl Processor {
 
         for highlight in display.iter().flat_map(|(_, highlight, _)| highlight) {
             self.sender.send(DisplayCommand::Edge {
-                a: highlight.0.pos.into(),
-                b: highlight.1.pos.into(),
+                a: highlight.0.pos,
+                b: highlight.1.pos,
                 thickness: self.model.radius * 0.015,
                 colour: Srgba::new(80, 80, 0, 192),
                 depth: true,

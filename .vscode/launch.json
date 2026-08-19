@@ -3,28 +3,29 @@
 {
     "configurations": [
         {
-        "name": "Debug (GDB non-stop)",
-        "type": "cppdbg",
-        "request": "launch",
-        "program": "${workspaceFolder}/target/debug/crochet-generator",
-        "args": [],
-        "stopAtEntry": false,
-        "cwd": "${workspaceFolder}",
-        "externalConsole": false,
-        "preLaunchTask": "cargo build (debug)",
-        "environment": [
-            { "name": "DEBUGINFOD_URLS", "value": "" }
-        ],
-        "MIMode": "gdb",
-        "miDebuggerPath": "/home/fullw/.local/bin/gdb-no-debuginfod",
-        "setupCommands": [
-            { "text": "set debuginfod enabled off" },
-            { "text": "set startup-with-shell off" },
-            { "text": "-gdb-set mi-async on" },
-            { "text": "-gdb-set non-stop on" },
-            { "text": "source /home/fullw/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/etc/gdb_load_rust_pretty_printers.py"},
-            { "text": "-enable-pretty-printing" }
-        ]
+            "name": "Debug (GDB non-stop)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/target/debug/crochet-generator",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "externalConsole": false,
+            "preLaunchTask": "cargo build (debug)",
+            "environment": [
+                { "name": "DEBUGINFOD_URLS", "value": "" }
+            ],
+            "MIMode": "gdb",
+            "miDebuggerPath": "/home/fullw/.local/bin/gdb-no-debuginfod",
+            "setupCommands": [
+                { "text": "set debuginfod enabled off" },
+                { "text": "set startup-with-shell off" },
+                { "text": "-gdb-set mi-async on" },
+                { "text": "-gdb-set non-stop on" },
+                { "text": "source /home/fullw/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/etc/gdb_load_rust_pretty_printers.py"},
+                { "text": "-enable-pretty-printing" },
+                { "text": "set debuginfod enabled off" }
+            ]
         }
     ]
 }

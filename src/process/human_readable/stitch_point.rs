@@ -26,7 +26,7 @@ pub enum Format {
     Skip(usize),
     /// CAREFUL - check docs for more information
     /// Close off this row with a slip stitch.
-    /// --- NEXT ROW ---
+    /// --- NEXT ROUND ---
     NextRow,
 }
 
@@ -77,7 +77,7 @@ impl Format {
     pub fn get_conf(&self) -> HighlightConf {
         match self {
             Format::MagicCircle(_) => HighlightConf::space_seperator(),
-            Format::NextRow => HighlightConf::new(String::new(), "\n--- NEXT ROW ---\n".to_string(), false),
+            Format::NextRow => HighlightConf::new(String::new(), "\n--- NEXT ROUND ---\n".to_string(), false),
             _ => HighlightConf::default()
         }
     }

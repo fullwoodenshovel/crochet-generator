@@ -7,13 +7,12 @@ use three_d::*;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 #[cfg(not(target_arch = "wasm32"))]
 use std::thread::JoinHandle;
-use crate::process::{Group, MEASUREMENTS, Output, Sizes};
+use crate::process::{Group, MEASUREMENTS, Output, PVec3, Sizes};
 use crate::process::{Processor, ProcessorCommand};
 use crate::camera::OrbitCamera;
 use crate::debug::DebugRenderer;
 use crate::model::{LIGHT_DIR, Model};
 
-type V3 = stl_io::Vector<f32>;
 type OutputResult = crate::process::Result<Output>;
 
 pub enum DisplayCommand {
@@ -21,24 +20,24 @@ pub enum DisplayCommand {
     Clear(Group),
     MeshVisible(bool),
     Point {
-        pos: V3,
+        pos: PVec3,
         radius: f32,
         colour: Srgba,
         depth: bool,
         group: Group
     },
     Edge {
-        a: V3,
-        b: V3,
+        a: PVec3,
+        b: PVec3,
         thickness: f32,
         colour: Srgba,
         depth: bool,
         group: Group
     },
     Face {
-        a: V3,
-        b: V3,
-        c: V3,
+        a: PVec3,
+        b: PVec3,
+        c: PVec3,
         colour: Srgba,
         depth: bool,
         group: Group
@@ -71,6 +70,9 @@ pub struct Viewer {
 
     #[cfg(target_arch = "wasm32")]
     last_touched_obj: Option<bool>,
+
+    #[cfg(target_arch = "wasm32")]
+    chose_seed_point: bool,
 
     mesh_visible: bool,
 
@@ -190,6 +192,8 @@ impl Viewer {
             seed_point: None,
             #[cfg(target_arch = "wasm32")]
             last_touched_obj: None,
+            #[cfg(target_arch = "wasm32")]
+            chose_seed_point: true,
             mesh_visible: true,
             selected_stitch: Arc::new(Mutex::new(None)),
         }
@@ -247,6 +251,9 @@ impl Viewer {
                 self.processor = ProcessorState::None;
                 self.self_sender.send(DisplayCommand::ClearAll).unwrap();
                 self.mesh_visible = true;
+                self.seed_point = None;
+                #[cfg(target_arch = "wasm32")]
+                {self.chose_seed_point = true;}
 
                 #[cfg(target_arch = "wasm32")]                
                 crate::web_glue::push_server_message(&crate::web_glue::ServerMessage::MeshLoaded {
@@ -259,9 +266,9 @@ impl Viewer {
                 match command {
                     DisplayCommand::ClearAll => self.debug.clear_all(),
                     DisplayCommand::Clear(name) => self.debug.clear(name as usize),
-                    DisplayCommand::Point { pos, radius, colour, depth, group } => self.debug.point(group as usize, pos.0.into(), radius, colour, depth),
-                    DisplayCommand::Edge { a, b, thickness, colour, depth, group } => self.debug.edge(group as usize, a.0.into(), b.0.into(), thickness, colour, depth),
-                    DisplayCommand::Face { a, b, c, colour, depth, group } => self.debug.face(group as usize, a.0.into(), b.0.into(), c.0.into(), colour, depth),
+                    DisplayCommand::Point { pos, radius, colour, depth, group } => self.debug.point(group as usize, pos.into(), radius, colour, depth),
+                    DisplayCommand::Edge { a, b, thickness, colour, depth, group } => self.debug.edge(group as usize, a.into(), b.into(), thickness, colour, depth),
+                    DisplayCommand::Face { a, b, c, colour, depth, group } => self.debug.face(group as usize, a.into(), b.into(), c.into(), colour, depth),
                     DisplayCommand::MeshVisible(visibility) => self.mesh_visible = visibility,
                 }
             }
@@ -293,13 +300,18 @@ impl Viewer {
             };
 
             self.self_sender.send(DisplayCommand::Clear(Group::Seed)).unwrap();
-            if let Some((_face, pos)) = self.seed_point {
-                self.self_sender.send(DisplayCommand::Point { pos: V3::new(pos.into()), radius: self.model.radius * 0.02, colour: Srgba::BLUE, depth: true, group: crate::process::Group::Seed }).unwrap()
+
+            #[cfg(not(target_arch = "wasm32"))]
+            let show_seed_point = true;
+            #[cfg(target_arch = "wasm32")]
+            let show_seed_point = self.chose_seed_point;
+
+            if show_seed_point && let Some((_face, pos)) = self.seed_point {
+                self.self_sender.send(DisplayCommand::Point { pos: pos.into(), radius: self.model.radius * 0.02, colour: Srgba::BLUE, depth: true, group: crate::process::Group::Seed }).unwrap()
             }
 
-
             #[cfg(target_arch = "wasm32")]
-            let mut update_cam = matches!(self.last_touched_obj, Some(false) | None);
+            let update_cam = matches!(self.last_touched_obj, Some(false) | None);
 
             for event in &frame_input.events {
                 match event {
@@ -309,7 +321,7 @@ impl Viewer {
                         let dir = self.cam.camera.view_direction_at_pixel(*position);
                         let origin = self.cam.camera.position_at_pixel(*position);
 
-                        if let Some((face, hit)) = pick_triangle(&self.model, origin, dir) {
+                        if self.chose_seed_point && let Some((face, hit)) = pick_triangle(&self.model, origin, dir) {
                             if self.last_touched_obj != Some(false) {
                                 self.seed_point = Some((face, hit));
                                 self.last_touched_obj = Some(true);
@@ -336,7 +348,7 @@ impl Viewer {
                         let origin = self.cam.camera.position_at_pixel(*position);
                         
                         if let Some((face, hit)) = pick_triangle(&self.model, origin, dir) {
-                            self.processor = start_command(self.model.clone(), &self.self_sender, self.processor.take(), ProcessorCommand::ReverseTraverse { face_index: face, position: V3::new(hit.into()) }, self.selected_stitch.clone());
+                            self.processor = start_command(self.model.clone(), &self.self_sender, self.processor.take(), ProcessorCommand::ReverseTraverse { face_index: face, position: hit.into() }, self.selected_stitch.clone());
                         }
                     },
                     Event::KeyPress { kind: Key::ArrowLeft, modifiers: _, handled: false } => {
@@ -392,30 +404,58 @@ impl Viewer {
                         ) {
                             self.processor = start_command(self.model.clone(), &self.self_sender, self.processor.take(), command, self.selected_stitch.clone());
                         }
+                    },
+                    crate::web_glue::ClientMessage::SetSeedPointMode { enabled } => {
+                        self.chose_seed_point = enabled;
                     }
                 }
             }
+
+            #[cfg(not(target_arch = "wasm32"))]
+            let render_mesh = self.mesh_visible;
+            #[cfg(target_arch = "wasm32")]
+            let render_mesh = self.mesh_visible || self.chose_seed_point;
+
+            #[cfg(not(target_arch = "wasm32"))]
+            let show_debug = true;
+            #[cfg(target_arch = "wasm32")]
+            let show_debug = !self.chose_seed_point;
             
-            let _ = frame_input
-                .screen()
-                .clear(ClearState::color_and_depth(
-                    0.09, 0.09, 0.12, 1.0, 1.0,
-                ))
-                .render(
-                    &self.cam.camera,
-                    self.mesh_visible
-                        .then_some(&self.mesh as &dyn Object)
-                        .into_iter()
-                        .chain(self.debug.occluded()),
-                    &[&self.ambient, &self.directional],
-                )
-                .clear(ClearState::depth(1.0))
-                .render(
-                    &self.cam.camera,
-                    self.debug.overlay(),
-                    &[&self.ambient, &self.directional],
-                )
-                .write(|| self.gui.render());
+            let target = frame_input
+                .screen();
+            target.clear(ClearState::color_and_depth(
+                0.09, 0.09, 0.12, 1.0, 1.0,
+            ));
+            target.render(
+                &self.cam.camera,
+                render_mesh
+                    .then_some(&self.mesh as &dyn Object)
+                    .into_iter()
+                    .chain(
+                        if show_debug {
+                            Some(self.debug.occluded()).into_iter().flatten().collect::<Vec<_>>()
+                        } else {
+                            #[cfg(target_arch = "wasm32")]
+                            if self.chose_seed_point {
+                                Some(self.debug.seed()).into_iter().flatten().collect::<Vec<_>>()
+                            } else {
+                                Vec::new()
+                            }
+                            #[cfg(not(target_arch = "wasm32"))]
+                            Vec::new()
+                        }
+                    ),
+                &[&self.ambient, &self.directional],
+            );
+
+            target.clear(ClearState::depth(1.0));
+            target.render(
+                &self.cam.camera,
+                self.debug.overlay(),
+                &[&self.ambient, &self.directional],
+            );
+
+            target.write(|| self.gui.render()).unwrap();
 
             FrameOutput::default()
             
@@ -427,7 +467,7 @@ impl Viewer {
 fn generate_command(sizes: Option<Sizes>, radius: f32, face_index: usize, hit: Vector3<f32>) -> Option<ProcessorCommand> {
     Some(ProcessorCommand::Generate {
         face_index,
-        position: V3::new(hit.into()),
+        position: hit.into(),
         calculator: match if cfg!(not(target_arch = "wasm32")) {
             Sizes::RadiusDivisor(5.0)
         } else {

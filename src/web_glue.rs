@@ -104,7 +104,8 @@ pub fn web_out_next() -> Option<String> {
 #[derive(serde::Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientMessage {
-    Generate { hook_size_mm: f32, diameter_cm: f32, measurements: Vec<crate::process::Measurement> }
+    Generate { hook_size_mm: f32, diameter_cm: f32, measurements: Vec<crate::process::Measurement> },
+    SetSeedPointMode { enabled: bool },
 }
 
 #[derive(serde::Serialize, Debug)]
@@ -112,7 +113,8 @@ pub enum ClientMessage {
 pub enum ServerMessage {
     MeshLoaded { vertex_count: u32, face_count: u32 },
     Error { message: String },
-    Output { data: Result<crate::process::Output, String> }
+    Output { data: Result<crate::process::Output, String> },
+    Debug { message: String },
 }
 
 impl ServerMessage {

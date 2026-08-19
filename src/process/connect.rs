@@ -93,15 +93,15 @@ impl Processor {
                     if let Some((circle, (p1, _), poss)) = intersections.pop() {
                         match poss {
                             Some((p2, _)) => self.sender.send(DisplayCommand::Edge {
-                                a: p1.pos.into(),
-                                b: p2.pos.into(),
+                                a: p1.pos,
+                                b: p2.pos,
                                 thickness: self.model.radius * 0.03,
                                 colour: Srgba::RED,
                                 depth: true,
                                 group: Group::Backtrack
                             }).unwrap(),
                             None => self.sender.send(DisplayCommand::Point {
-                                pos: p1.pos.into(),
+                                pos: p1.pos,
                                 radius: self.model.radius * 0.03,
                                 colour: Srgba::RED,
                                 depth: true,

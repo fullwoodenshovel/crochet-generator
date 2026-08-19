@@ -127,6 +127,14 @@ impl From<Vector<f32>> for PVec3 {
     }
 }
 
+impl From<[f32; 3]> for PVec3 {
+    fn from(value: [f32; 3]) -> Self {
+        Self {
+            vec: value
+        }
+    }
+}
+
 impl From<Vec3> for PVec3 {
     fn from(value: Vec3) -> Self {
         Self {
