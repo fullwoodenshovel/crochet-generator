@@ -70,7 +70,7 @@ impl Processor {
         
         while let (_geo_len, Some(node)) = nodes.get(&closest).unwrap() {
             let intersections = self.find_intersections(&map, node, &closest, None)?;
-            for ((i, j), (p1, _), poss) in intersections {
+            for (_, (p1, _), poss) in intersections {
                 match poss {
                     Some((p2, _)) => self.sender.send(DisplayCommand::Edge {
                         a: p1.pos,

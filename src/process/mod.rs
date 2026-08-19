@@ -19,7 +19,7 @@ mod find_intersections;
 mod stitches;
 mod human_readable;
 
-use crate::{model::Model, process::{isolines::{IsolinesVec, OnEdge}, stitches::{Readable, StitchCommand, StitchDisplay}}, viewer::DisplayCommand};
+use crate::{model::Model, process::{isolines::IsolinesVec, stitches::{StitchCommand, StitchDisplay}}, viewer::DisplayCommand};
 use std::result::Result as StdResult;
 
 pub type Result<T> = StdResult<T, Error>;
@@ -154,7 +154,6 @@ pub enum Group {
 struct GeneratedInfo {
     /// Hashmap with some node, the geo-length to it from the seed point, and its potential predecessor.
     nodes: DijkstrasMap,
-    stitch_size: f32,
     epsilon: f32,
     seed_point: PVec3,
     seed_face: usize,
@@ -237,7 +236,6 @@ impl Processor {
         let epsilon = stitch_size * STITCH_SIZE_EPSILON_MULTIPLIER;
         let (nodes, furthest_point) = self.dijkstras(epsilon, position, face_index)?;
         let furthest_len = nodes.get(&furthest_point).unwrap().0;
-        let len = nodes.len();
         println!("Diameter: {}; furthest_len: {furthest_len:?}", self.model.radius * 2.0);
         for (node, (geo_len, _pre)) in &nodes {
             // tokio::time::sleep(Duration::from_secs_f32(6.0 / len as f32)).await;
@@ -254,14 +252,14 @@ impl Processor {
         
         let (isolines, furthest_point) = self.isolines(&nodes, furthest_len, furthest_point, stitch_size, stitch_size * STITCH_SIZE_EPSILON_MULTIPLIER)?;
 
-        self.info = Some(GeneratedInfo { nodes, stitch_size, epsilon, seed_point: position, seed_face: face_index, isolines, furthest_point });
+        self.info = Some(GeneratedInfo { nodes, epsilon, seed_point: position, seed_face: face_index, isolines, furthest_point });
         let isolines = &self.info.as_ref().unwrap().isolines;
 
         let map = self.get_isoline_map(isolines);
         let tree = self.connect(&map, isolines)?;
-        let (magic_circle, magic_highlights, internal_stitches, final_highlights) = self.tree_into_stitches(tree, calculator, &map)?;
-        let stitch_commands = StitchCommand::from_internal(internal_stitches, magic_circle, magic_highlights);
-        let readable_commands = StitchDisplay::from_internal(stitches::StitchFormatChoice::Worded, stitch_commands, final_highlights);
+        let (internal_stitches, boundary_info) = self.tree_into_stitches(tree, calculator, &map)?;
+        let stitch_commands = StitchCommand::from_internal(internal_stitches, boundary_info.magic_circle, boundary_info.magic_highlights);
+        let readable_commands = StitchDisplay::from_internal(stitches::StitchFormatChoice::Worded, stitch_commands, boundary_info.final_circle);
         self.overwrite_debug_stitches(&readable_commands);
         let result = format!("{readable_commands}");
         self.readable_commands = Some(readable_commands);
@@ -307,16 +305,6 @@ impl Processor {
     fn edges_on_face(&self, face: usize) -> [[usize; 2]; 3] {
         let v = self.model.mesh.faces[face].vertices;
         [[v[0], v[1]], [v[1], v[2]], [v[2], v[0]]]
-    }
-
-    fn node_into_on_edge(&self, node: Node) -> NodeOnEdge {
-        match node.connectivity {
-            Connectivity::OnVertex(a) => NodeOnEdge {
-                edge: OnEdge::new(a, *self.model.mesh.faces[self.vertex_to_faces[a][0]].vertices.iter().find(|v| **v != a).unwrap()),
-                pos: node.pos
-            },
-            Connectivity::OnEdge(a, b) => NodeOnEdge { edge: OnEdge { a, b }, pos: node.pos },
-        }
     }
 
     /// Unwraps self.info with error message

@@ -114,6 +114,7 @@ pub enum ServerMessage {
     MeshLoaded { vertex_count: u32, face_count: u32 },
     Error { message: String },
     Output { data: Result<crate::process::Output, String> },
+    #[allow(unused)] // Intended for debugging purposes - not always used
     Debug { message: String },
 }
 

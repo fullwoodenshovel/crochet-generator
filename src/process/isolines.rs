@@ -7,6 +7,7 @@ use three_d::egui::emath::Float;
 use super::*;
 
 pub type IsolinesVec = Vec<Vec<(f32, Vec<NodeOnEdge>)>>;
+pub type IsolinesOnEdgeMap = Vec<DetHashMap<OnEdge, Vec<PVec3>>>;
 
 impl Processor {
     /// The output of this function is a list of all isolines, connected in a circle, e.g.
@@ -35,7 +36,7 @@ impl Processor {
         Ok((result, furthest_point))
     }
 
-    fn get_isoline_points(&self, map: &DijkstrasMap, len: f32, furthest_point: Node, stitch_size: f32, epsilon: f32) -> Result<(Vec<DetHashMap<OnEdge, Vec<PVec3>>>, Node)> {
+    fn get_isoline_points(&self, map: &DijkstrasMap, len: f32, furthest_point: Node, stitch_size: f32, epsilon: f32) -> Result<(IsolinesOnEdgeMap, Node)> {
         let old_ss = stitch_size;
         let total_lines = (len / old_ss).round();
         let utotal_lines = total_lines as usize;
@@ -99,7 +100,7 @@ impl Processor {
         Ok((isoline_points, furthest_point))
     }
 
-    fn connect_isoline_faces(&self, points: Vec<DetHashMap<OnEdge, Vec<PVec3>>>) -> Result<Vec<DetHashMap<usize, Vec<[NodeOnEdge; 2]>>>> {
+    fn connect_isoline_faces(&self, points: IsolinesOnEdgeMap) -> Result<Vec<DetHashMap<usize, Vec<[NodeOnEdge; 2]>>>> {
         let mut result = vec![DetHashMap::default(); points.len()];
         for (row, isoline) in points.into_iter().enumerate() {
             let mut faces = HashSet::new();
@@ -362,15 +363,15 @@ impl OnEdge {
         Self { a, b }
     }
 
-    pub fn matching_vertex(&self, other: &Self) -> Option<usize> {
-        if self.a == other.a || self.a == other.b {
-            Some(self.a)
-        } else if self.b == other.a || self.b == other.b {
-            Some(self.b)
-        } else {
-            None
-        }
-    }
+    // pub fn matching_vertex(&self, other: &Self) -> Option<usize> {
+    //     if self.a == other.a || self.a == other.b {
+    //         Some(self.a)
+    //     } else if self.b == other.a || self.b == other.b {
+    //         Some(self.b)
+    //     } else {
+    //         None
+    //     }
+    // }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -379,11 +380,11 @@ pub struct NodeOnEdge {
     pub pos: PVec3,
 }
 
-impl NodeOnEdge {
-    pub fn matching_vertex(&self, other: &Self) -> Option<usize> {
-        self.edge.matching_vertex(&other.edge)
-    }
-}
+// impl NodeOnEdge {
+//     pub fn matching_vertex(&self, other: &Self) -> Option<usize> {
+//         self.edge.matching_vertex(&other.edge)
+//     }
+// }
 
 fn get_circle_len(circle: &[NodeOnEdge]) -> f32 {
     let mut result = 0.0;

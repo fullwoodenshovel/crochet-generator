@@ -138,13 +138,13 @@ impl FixedHookCalculator {
         }
     }
 
-    pub fn stl_to_relative(&self, stl_units: f32, height: bool) -> f32 {
-        if height {
-            (stl_units - self.height_coeffs.0) / self.height_coeffs.1
-        } else {
-            (stl_units - self.width_coeffs.0) / self.width_coeffs.1
-        }
-    }
+    // pub fn stl_to_relative(&self, stl_units: f32, height: bool) -> f32 {
+    //     if height {
+    //         (stl_units - self.height_coeffs.0) / self.height_coeffs.1
+    //     } else {
+    //         (stl_units - self.width_coeffs.0) / self.width_coeffs.1
+    //     }
+    // }
 }
 
 const fn average(a: f32, b: f32) -> f32 {

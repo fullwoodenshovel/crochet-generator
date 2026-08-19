@@ -10,7 +10,7 @@ mod web_glue;
 
 
 #[cfg(target_arch = "wasm32")]
-use std::{cell::RefCell, sync::Mutex};
+use std::sync::Mutex;
 #[cfg(target_arch = "wasm32")]
 use tokio::sync::mpsc::UnboundedSender;
 use viewer::Viewer;
@@ -35,7 +35,7 @@ fn on_stl_loaded(bytes: Vec<u8>) {
     let lock = CHANNELS.lock().unwrap() ;
 
     if let Some(channel) = &*lock {
-        channel.send(bytes);
+        channel.send(bytes).unwrap();
     } else {
         drop(lock);
 

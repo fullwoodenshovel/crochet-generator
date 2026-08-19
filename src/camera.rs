@@ -35,15 +35,15 @@ impl OrbitCamera {
         self.camera.set_viewport(viewport);
     }
 
-    pub fn recentre(&mut self, centre: Vec3, radius: f32) {
-        self.camera.set_view(
-            centre + vec3(radius * 2.5, radius * 1.5, radius * 2.5),
-            centre,
-            vec3(0.0, 1.0, 0.0),
-        );
-        self.control = OrbitControl::new(centre, radius * 0.1, radius * 20.0);
-        self.target = centre;
-    }
+    // pub fn recentre(&mut self, centre: Vec3, radius: f32) {
+    //     self.camera.set_view(
+    //         centre + vec3(radius * 2.5, radius * 1.5, radius * 2.5),
+    //         centre,
+    //         vec3(0.0, 1.0, 0.0),
+    //     );
+    //     self.control = OrbitControl::new(centre, radius * 0.1, radius * 20.0);
+    //     self.target = centre;
+    // }
 
     /// Call once per frame after `update()` to keep near/far tight
     /// around the current orbit distance — fixes z-fighting that gets

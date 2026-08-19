@@ -173,6 +173,7 @@ impl DebugRenderer {
        RENDER STREAMS
     ============================================================ */
 
+    #[cfg(target_arch = "wasm32")]
     pub fn seed(&self) -> impl Iterator<Item = &dyn Object> {
         self.groups.get(&(crate::process::Group::Seed as usize)).into_iter().flat_map(|group|
             group

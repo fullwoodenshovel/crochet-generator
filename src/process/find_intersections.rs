@@ -27,6 +27,9 @@ fn segment_intersect(n: PVec3, a: PVec3, b: PVec3, c: PVec3, d: PVec3) -> Option
     }
 }
 
+type IntersectionOnEdge = ((usize, usize), PVec3, [(NodeOnEdge, usize); 2]);
+type Intersection = ((usize, usize), (NodeOnEdge, usize), Option<(NodeOnEdge, usize)>);
+
 impl Processor {
     /// Takes hashmap representation of isolines and the segment node - (pos face).
     /// current_isoline is used to filter for only intersections with the previous isoline.
@@ -37,7 +40,7 @@ impl Processor {
     /// This panics if self.info is None
     // This is less optimised because we can't do our circling around trick anymore, we need to actually check if each line intersects.
     // This also means, however, that this code is less prone to bugs.
-    pub(super) fn find_face_intersections(&self, map: &IsolinesMap, node: &Node, face: usize, pos: PVec3, intersecting_isoline: Option<usize>) -> Result<Vec<((usize, usize), PVec3, [(NodeOnEdge, usize); 2])>> {
+    pub(super) fn find_face_intersections(&self, map: &IsolinesMap, node: &Node, face: usize, pos: PVec3, intersecting_isoline: Option<usize>) -> Result<Vec<IntersectionOnEdge>> {
         let info = self.get_info_unwrapped();
         let isolines = &info.isolines;
 
@@ -108,7 +111,7 @@ impl Processor {
     // This just calls self.find_face_intersections with a specific, invalid node. This is just a mathematical
     // trick that works because we are never checking the connectivity of the node in self.find_face_intersections,
     // if that connectivity is OnVertex.
-    pub(super) fn find_double_face_intersections(&self, map: &IsolinesMap, face: usize, pos1: PVec3, pos2: PVec3, intersecting_isoline: Option<usize>) -> Result<Vec<((usize, usize), PVec3, [(NodeOnEdge, usize); 2])>> {
+    pub(super) fn find_double_face_intersections(&self, map: &IsolinesMap, face: usize, pos1: PVec3, pos2: PVec3, intersecting_isoline: Option<usize>) -> Result<Vec<IntersectionOnEdge>> {
         self.find_face_intersections(map, &Node { connectivity: Connectivity::OnVertex(0), pos: pos1 }, face, pos2, intersecting_isoline)
     }
 
@@ -122,7 +125,7 @@ impl Processor {
     /// p1 is the point of intersection.
     /// # Panics
     /// This panics if self.info is None
-    pub(super) fn find_intersections(&self, map: &IsolinesMap, node1: &Node, node2: &Node, intersecting_isoline: Option<usize>) -> Result<Vec<((usize, usize), (NodeOnEdge, usize), Option<(NodeOnEdge, usize)>)>> {
+    pub(super) fn find_intersections(&self, map: &IsolinesMap, node1: &Node, node2: &Node, intersecting_isoline: Option<usize>) -> Result<Vec<Intersection>> {
         let info = self.get_info_unwrapped();
         let isolines = &info.isolines;
 

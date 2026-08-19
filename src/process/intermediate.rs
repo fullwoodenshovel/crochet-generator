@@ -19,15 +19,15 @@ pub enum InternalStitchCommand {
     NextRow(Highlight, Highlight),
 }
 
-fn nearest_stitch_size(relative_size: f32) -> f32 {
-    match relative_size {
-        0.0..1.25 => 1.0,
-        1.25..1.75 => 1.5,
-        1.75..2.5 => 2.0,
-        2.5.. => 3.0,
-        v => panic!("Incorrect value given to nearest_stitch_size: {v}")
-    }
-}
+// fn nearest_stitch_size(relative_size: f32) -> f32 {
+//     match relative_size {
+//         0.0..1.25 => 1.0,
+//         1.25..1.75 => 1.5,
+//         1.75..2.5 => 2.0,
+//         2.5.. => 3.0,
+//         v => panic!("Incorrect value given to nearest_stitch_size: {v}")
+//     }
+// }
 
 
 /// This panics if a == b.
@@ -100,9 +100,15 @@ impl From<StitchPoint> for HighlightPoint {
 //     }
 // }
 
+pub struct BoundaryInfo {
+    pub magic_circle: usize,
+    pub magic_highlights: Vec<Highlight>,
+    pub final_circle: Vec<StitchPoint>
+}
+
 impl Processor {
     /// This panics if self.info is None
-    pub fn tree_into_stitches(&self, tree: CircleTree, sizes_calculator: FixedHookCalculator, isolines_map: &IsolinesMap) -> Result<(usize, Vec<Highlight>, Vec<InternalStitchCommand>, Vec<StitchPoint>)> {
+    pub fn tree_into_stitches(&self, tree: CircleTree, sizes_calculator: FixedHookCalculator, isolines_map: &IsolinesMap) -> Result<(Vec<InternalStitchCommand>, BoundaryInfo)> {
         let info = self.get_info_unwrapped();
         let furthest_point = info.furthest_point.pos;
         let seed_point = info.seed_point;
@@ -164,7 +170,7 @@ impl Processor {
             magic_highlights.push(Highlight(HighlightPoint { pos: seed_point, isoline_index: 0 }, HighlightPoint { pos: a.pos, isoline_index: i }));
         }
 
-        let mut final_highlights = curr_spaced_points.clone();
+        let mut final_circle = curr_spaced_points.clone();
 
         while let Some(next) = curr.children.pop() {
             if curr.children.len() > 1 {
@@ -333,7 +339,7 @@ impl Processor {
             curr = next;
             direction_flag = next_dir_flag;
             isoline += 1;
-            final_highlights = curr_spaced_points.clone();
+            final_circle = curr_spaced_points.clone();
         }
 
 
@@ -358,22 +364,22 @@ impl Processor {
 
         self.sender.send(DisplayCommand::Clear(Group::Backtrack)).unwrap();
         self.sender.send(DisplayCommand::MeshVisible(false)).unwrap();
-        Ok((initial_stitches, magic_highlights, internal_result, final_highlights))
+        Ok((internal_result, BoundaryInfo { magic_circle: initial_stitches, magic_highlights, final_circle }))
     }
 
     fn send_stitch(&self, a: PVec3, b: PVec3, prev_point: PVec3) {
         self.sender.send(DisplayCommand::Edge {
-            a: a.into(),
-            b: b.into(),
+            a,
+            b,
             thickness: self.model.radius * 0.01,
             colour: Srgba::new(80, 80, 0, 192),
             depth: true,
             group: Group::StitchFaceOutline,
         }).unwrap();
         self.sender.send(DisplayCommand::Face {
-            a: a.into(),
-            b: b.into(),
-            c: prev_point.into(),
+            a,
+            b,
+            c: prev_point,
             colour: Srgba::new(200, 200, 200, 255),
             depth: true,
             group: Group::Stitch,
@@ -388,16 +394,16 @@ impl Processor {
         Ok(self.get_horizontal_distance(data, test, a)?.total_cmp(&self.get_horizontal_distance(data, test, b)?))
     }
 
-    /// To be used to compare horizontal distance between a test point
-    /// on the next isoline, and two points on this isoline.
-    /// # Panics
-    /// This panics if self.info is None
-    fn cmp_horizontal_distance_curr(&self, data: (usize, &IsolinesMap, &[NodeOnEdge], f32), test: StitchPoint, a: StitchPoint, b: StitchPoint) -> Result<Ordering> {
-        let (intersection, _, (_, _, k)) = self.get_rev_trav_intersection(test.pos, test.face, data.1, data.0)?;
-        let da = dist_on_circle(data.2, data.3, k, intersection, a.isoline_index, a.pos);
-        let db = dist_on_circle(data.2, data.3, k, intersection, b.isoline_index, b.pos);
-        Ok(da.total_cmp(&db))
-    }
+    // /// To be used to compare horizontal distance between a test point
+    // /// on the next isoline, and two points on this isoline.
+    // /// # Panics
+    // /// This panics if self.info is None
+    // fn cmp_horizontal_distance_curr(&self, data: (usize, &IsolinesMap, &[NodeOnEdge], f32), test: StitchPoint, a: StitchPoint, b: StitchPoint) -> Result<Ordering> {
+    //     let (intersection, _, (_, _, k)) = self.get_rev_trav_intersection(test.pos, test.face, data.1, data.0)?;
+    //     let da = dist_on_circle(data.2, data.3, k, intersection, a.isoline_index, a.pos);
+    //     let db = dist_on_circle(data.2, data.3, k, intersection, b.isoline_index, b.pos);
+    //     Ok(da.total_cmp(&db))
+    // }
 
     /// To be used to find horizontal distance between points on the next isoline.
     fn get_horizontal_distance(&self, (current_isoline, isolines_map, circle, circle_len): (usize, &IsolinesMap, &[NodeOnEdge], f32), test: StitchPoint, a: StitchPoint) -> Result<f32> {
@@ -428,8 +434,8 @@ impl Processor {
         };
 
         self.sender.send(DisplayCommand::Edge {
-            a: prev.pos.into(),
-            b: start.into(),
+            a: prev.pos,
+            b: start,
             thickness: self.model.radius * 0.03,
             colour: Srgba::RED,
             depth: true,

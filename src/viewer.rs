@@ -63,6 +63,7 @@ pub struct Viewer {
     receiver: UnboundedReceiver<DisplayCommand>,
     
     processor: ProcessorState,
+    #[cfg(not(target_arch = "wasm32"))]
     sizes: Option<Sizes>,
 
     stl_channel: UnboundedReceiver<Vec<u8>>,
@@ -98,10 +99,11 @@ impl Viewer {
     pub fn from_default_path(stl_channel: UnboundedReceiver<Vec<u8>>) -> Result<Self> {
         let path = "/home/fullw/Documents/Safekeeping/Coding/rust/crochet-generator/src/model.stl";
         let model = Model::from_path(path)?;
-
+        
         Self::from_model(model, stl_channel)
     }
-
+    
+    #[cfg(target_arch = "wasm32")]
     pub fn from_bytes(bytes: &[u8], stl_channel: UnboundedReceiver<Vec<u8>>) -> Result<Self> {
         let model = Model::from_bytes(bytes)?;
 
@@ -187,6 +189,7 @@ impl Viewer {
             receiver,
             self_sender,
             processor: ProcessorState::None,
+            #[cfg(not(target_arch = "wasm32"))]
             sizes: None,
             stl_channel,
             seed_point: None,

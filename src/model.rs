@@ -3,10 +3,8 @@
 use three_d::InnerSpace;
 use anyhow::{Context, Result};
 use stl_io::{IndexedMesh, Vector};
-use std::{
-    fs::File,
-    io::BufReader,
-};
+#[cfg(not(target_arch = "wasm32"))]
+use std::{fs::File, io::BufReader};
 
 use three_d::{
     CpuMesh,

@@ -82,8 +82,8 @@ impl Processor {
                     }
 
                     self.sender.send(DisplayCommand::Edge {
-                        a: node.pos.into(),
-                        b: closest.pos.into(),
+                        a: node.pos,
+                        b: closest.pos,
                         thickness: self.model.radius * 0.02,
                         colour: Srgba::GREEN,
                         depth: true,
