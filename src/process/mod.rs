@@ -6,8 +6,6 @@ use three_d::{Srgba, egui::epaint::Hsva};
 use tokio::sync::mpsc;
 mod process_vec3;
 pub use process_vec3::PVec3;
-mod frontier;
-use frontier::Frontier;
 mod dijkstras;
 mod isolines;
 use isolines::NodeOnEdge;
