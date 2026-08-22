@@ -50,9 +50,16 @@ impl Processor {
         let mut indexed_circle_trees = vec![IndexedCircle { circle: (0, 0), prev: None }];
 
         assert(
-            isolines[0].len() == 1,
+            isolines[0].len() <= 1,
             "A split occurs before the first row",
             "Chose a different seed point, a different STL file, or decrease relative stitch size (by increasing diameter or decreasing hook size).",
+            ErrorFault::User
+        )?;
+
+        assert(
+            isolines[0].len() == 1,
+            "The STL file is too small in comparison to a stitch size.",
+            "Decrease relative stitch size (by increasing diameter or decreasing hook size).",
             ErrorFault::User
         )?;
 
