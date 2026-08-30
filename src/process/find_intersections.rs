@@ -1,7 +1,7 @@
 // This file is partially AI generated (one function)
 // All AI used in this file is documented.
 
-use crate::process::{Connectivity, Node, Processor, Result, assert_internal, failed_assert_internal};
+use crate::process::{Connectivity, Node, Processor, Result, assert_internal, cyclic_array_windows, failed_assert_internal};
 use crate::process::connect::IsolinesMap;
 use crate::process::process_vec3::PVec3;
 use crate::process::isolines::{NodeOnEdge, OnEdge};
@@ -84,8 +84,8 @@ impl Processor {
             let mut connections = Vec::new();
 
             for ((i, j), circle) in circles {
-                for [(n1, k1), (n2, k2)] in circle.array_windows().map(|[a, b]| [a, b]).chain(Some([circle.last().unwrap(), circle.first().unwrap()])) {
-                    if (k1 + 1) % isolines[i][j].1.len() == *k2 && let Some(intersection) = segment_intersect(face_normal, n1.pos, n2.pos, pos, node.pos) {
+                for [(n1, k1), (n2, k2)] in cyclic_array_windows(&circle) {
+                    if (k1 + 1) % isolines[i][j].nodes.len() == *k2 && let Some(intersection) = segment_intersect(face_normal, n1.pos, n2.pos, pos, node.pos) {
                         connections.push(((i, j), intersection, [(*n1, *k1), (*n2, *k2)]));
                     } else if let Connectivity::OnEdge(a, b) = node.connectivity && n1.edge == (OnEdge{a, b}) && n2.edge == (OnEdge{a, b}) && // If the node lies on the same edge
                     let distance = (n1.pos - n2.pos).magnitude_squared() && // And it is closer to both nodes
@@ -284,7 +284,7 @@ impl Processor {
                                         if **next_k == k + 1 {
                                             intersects.isoline()
                                         }
-                                    } else if isolines[i][j].1.len() == k + 1  && *tests[0].0 == 0 {    
+                                    } else if isolines[i][j].nodes.len() == k + 1  && *tests[0].0 == 0 {    
                                         tests[0].2.isoline();
                                     }
                                 },
@@ -297,9 +297,9 @@ impl Processor {
                         }
 
                         if tests.len() >= 2 {
-                            for [a, b] in tests.array_windows().map(|[a, b]| [a, b]).chain(Some([tests.last().unwrap(), tests.first().unwrap()])) {
+                            for [a, b] in cyclic_array_windows(&tests) {
                                 // We arent testing a.2.intersects() because of reasons. (It's magic :D )
-                                if b.2.intersects()? && (a.0 + 1) % isolines[i][j].1.len() == *b.0 {
+                                if b.2.intersects()? && (a.0 + 1) % isolines[i][j].nodes.len() == *b.0 {
                                     connections.push(((i, j), (*a.1, *a.0), Some((*b.1, *b.0))))
                                 }
                             }

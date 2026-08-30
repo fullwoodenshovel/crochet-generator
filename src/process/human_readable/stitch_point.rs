@@ -25,7 +25,7 @@ pub enum Format {
     // (SKIP -- )*<n>
     Skip(usize),
     /// CAREFUL - check docs for more information
-    /// Close off this row with a slip stitch.
+    /// Close off this round with a slip stitch.
     /// --- NEXT ROUND ---
     NextRow,
 }
@@ -95,7 +95,7 @@ impl Display for Format {
             Format::Dec(n) => write!(f, "Single crochet{}", " -- SKIP".repeat(*n)),
             Format::ChainDec(n) => write!(f, "Chain 1 (count as sc){}", " -- SKIP".repeat(*n)),
             Format::Skip(n) => write!(f, "{}", "SKIP -- ".repeat(*n)),
-            Format::NextRow => write!(f, "Close off this row with a slip stitch."),
+            Format::NextRow => write!(f, "Close off this round with a slip stitch."),
         }
     }
 }

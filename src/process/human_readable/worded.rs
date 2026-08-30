@@ -27,12 +27,12 @@ pub enum Format {
     // Skip the next stitch
     SkipOnce,
     /// CAREFUL - check docs for more information
-    /// Close off this row with a slip stitch.
-    /// You should have <m> stitches in this row.
+    /// Close off this round with a slip stitch.
+    /// You should have <m> stitches in this round.
     /// --- ROUND <n> ---
     Row(usize, usize),
-    // Close off the final row with a slip stitch.
-    // You should have <n> stitches in this row.
+    // Close off the final round with a slip stitch.
+    // You should have <n> stitches in this round.
     Final(usize),
 }
 
@@ -138,8 +138,8 @@ impl Format {
 
     pub fn get_conf(&self) -> HighlightConf {
         match self {
-            Format::Row(n, m) => HighlightConf::new(String::new(), format!(".\nThis row should have {m} stitches.\n--- ROUND {n} ---\n"), false),
-            Format::Final(n) => HighlightConf::new(String::new(), format!(".\nThis row should have {n} stitches."), false),
+            Format::Row(n, m) => HighlightConf::new(String::new(), format!(".\nThis round should have {m} stitches.\n--- ROUND {n} ---\n"), false),
+            Format::Final(n) => HighlightConf::new(String::new(), format!(".\nThis round should have {n} stitches."), false),
             _ => HighlightConf::default()
         }
     }
@@ -158,8 +158,8 @@ impl Display for Format {
             Format::ChainInc(n) => write!(f, "Chain 1 (count as sc) AND put {} Single crochets into this stitch", n-1),
             Format::Skip(n) => write!(f, "Skip the next {n} stitches"),
             Format::SkipOnce => write!(f, "Skip the next stitch"),
-            Format::Row(_, _) => write!(f, "Close off this row with a slip stitch"),
-            Format::Final(_) => write!(f, "Close off the final row with a slip stitch"),
+            Format::Row(_, _) => write!(f, "Close off this round with a slip stitch"),
+            Format::Final(_) => write!(f, "Close off the final round with a slip stitch"),
         }
     }
 }

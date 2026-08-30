@@ -366,6 +366,30 @@ impl Viewer {
                             self.processor = start_command(self.model.clone(), &self.self_sender, self.processor.take(), ProcessorCommand::HighlightStitch, self.selected_stitch.clone());
                         }
                     },
+                    #[cfg(debug_assertions)]
+                    Event::KeyPress { kind: Key::W, modifiers: _, handled: false } => {
+                        self.cam.forwards(self.cam.distance() * 0.8 * frame_input.elapsed_time as f32 * 0.001);
+                    },
+                    #[cfg(debug_assertions)]
+                    Event::KeyPress { kind: Key::S, modifiers: _, handled: false } => {
+                        self.cam.forwards(-self.cam.distance() * 0.8 * frame_input.elapsed_time as f32 * 0.001);
+                    },
+                    #[cfg(debug_assertions)]
+                    Event::KeyPress { kind: Key::D, modifiers: _, handled: false } => {
+                        self.cam.rightwards(self.cam.distance() * 0.8 * frame_input.elapsed_time as f32 * 0.001);
+                    },
+                    #[cfg(debug_assertions)]
+                    Event::KeyPress { kind: Key::A, modifiers: _, handled: false } => {
+                        self.cam.rightwards(-self.cam.distance() * 0.8 * frame_input.elapsed_time as f32 * 0.001);
+                    },
+                    #[cfg(debug_assertions)]
+                    Event::KeyPress { kind: Key::Space, modifiers: _, handled: false } => {
+                        self.cam.upwards(self.cam.distance() * 0.8 * frame_input.elapsed_time as f32 * 0.001);
+                    },
+                    #[cfg(debug_assertions)]
+                    Event::KeyPress { kind: Key::Q, modifiers: _, handled: false } => {
+                        self.cam.upwards(-self.cam.distance() * 0.8 * frame_input.elapsed_time as f32 * 0.001);
+                    },
                     Event::KeyPress { kind: Key::ArrowRight, modifiers: _, handled: false } => {
                         let mut lock = self.selected_stitch.lock().unwrap();
                         let stitch = lock.map(|v| v + 1).unwrap_or(0);

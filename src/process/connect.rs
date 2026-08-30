@@ -2,7 +2,7 @@
 
 use three_d::egui::emath::Float;
 
-use crate::process::isolines::OnEdge;
+use crate::process::isolines::{Circle, OnEdge};
 
 use super::*;
 
@@ -13,6 +13,9 @@ pub struct CircleTree {
     pub circle: Vec<NodeOnEdge>,
     pub circle_len: f32,
     pub children: Vec<CircleTree>,
+    pub circle_index: (usize, usize),
+    // true means CW, false means CCW
+    pub direction: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -28,19 +31,21 @@ struct IndexedCircleTree {
 }
 
 impl IndexedCircleTree {
-    fn into_circle_tree(self, isolines: &[Vec<(f32, Vec<NodeOnEdge>)>]) -> CircleTree {
-        let (circle_len, circle) = isolines[self.circle.0][self.circle.1].clone();
+    fn into_circle_tree(self, isolines: &[Vec<Circle>]) -> CircleTree {
+        let Circle { len, nodes, direction } = isolines[self.circle.0][self.circle.1].clone();
         CircleTree {
-            circle,
-            circle_len,
+            circle: nodes,
+            circle_len: len,
+            direction,
             children: self.children.into_iter().map(|child| child.into_circle_tree(isolines)).collect(),
+            circle_index: self.circle
         }
     }
 }
 
 impl Processor {
     /// This panics if self.info is None
-    pub(super) fn connect(&self, map: &IsolinesMap, isolines: &[Vec<(f32, Vec<NodeOnEdge>)>]) -> Result<CircleTree> {
+    pub(super) fn connect(&self, map: &IsolinesMap, isolines: &[Vec<Circle>]) -> Result<CircleTree> {
         self.sender.send(DisplayCommand::Clear(Group::IsolineConnectors)).unwrap();
         self.sender.send(DisplayCommand::Clear(Group::IsolinePoints)).unwrap();
         let info = self.get_info_unwrapped();
@@ -51,7 +56,7 @@ impl Processor {
 
         assert(
             isolines[0].len() <= 1,
-            "A split occurs before the first row",
+            "A split occurs before the first round",
             "Chose a different seed point, a different STL file, or decrease relative stitch size (by increasing diameter or decreasing hook size).",
             ErrorFault::User
         )?;
@@ -74,7 +79,7 @@ impl Processor {
                     continue 'circle;
                 }
 
-                let circle_node = circle.1.first().unwrap();
+                let circle_node = circle.nodes.first().unwrap();
                 let OnEdge { a, b } = circle_node.edge;
                 let pos = circle_node.pos;
                 let mut closest = &self.nodes_on_edge(a, b, *epsilon).into_iter().min_by_key(|node| (node.pos - pos).magnitude_squared().ord()).unwrap();
@@ -137,10 +142,10 @@ impl Processor {
         Ok(connect_tree(indexed_circle_trees).into_circle_tree(isolines))
     }
 
-    pub(super) fn get_isoline_map(&self, isolines: &[Vec<(f32, Vec<NodeOnEdge>)>]) -> IsolinesMap {
+    pub(super) fn get_isoline_map(&self, isolines: &[Vec<Circle>]) -> IsolinesMap {
         let mut map = DetHashMap::default();
         for (i, isoline) in isolines.iter().enumerate() {
-            for (j, (_circle_len, circle)) in isoline.iter().enumerate() {
+            for (j, Circle { len: _, nodes: circle, direction: _ }) in isoline.iter().enumerate() {
                 for (k, node) in circle.iter().enumerate() {
                     map.entry(node.edge).or_insert_with(|| Vec::with_capacity(1)).push((node.pos, (i, j, k)));
                 }

@@ -6,7 +6,15 @@ use three_d::egui::emath::Float;
 
 use super::*;
 
-pub type IsolinesVec = Vec<Vec<(f32, Vec<NodeOnEdge>)>>;
+#[derive(Clone, Debug)]
+pub struct Circle {
+    pub len: f32,
+    pub nodes: Vec<NodeOnEdge>,
+    pub direction: Option<bool>,
+}
+
+type NoDirIsolinesVec = Vec<Vec<(f32, Vec<NodeOnEdge>)>>;
+pub type IsolinesVec = Vec<Vec<Circle>>;
 pub type IsolinesOnEdgeMap = Vec<DetHashMap<OnEdge, Vec<PVec3>>>;
 
 impl Processor {
@@ -23,17 +31,29 @@ impl Processor {
     ///     ]
     /// ]
     /// ```
-    pub fn isolines(&self, nodes: &DijkstrasMap, furthest_len: f32, furthest_point: Node, stitch_size: f32, epsilon: f32) -> Result<(IsolinesVec, Node)> {
-        let (points, furthest_point) = self.get_isoline_points(nodes, furthest_len, furthest_point, stitch_size, epsilon)?;
+    pub fn isolines(&self, dijkstras: &DijkstrasMap, furthest_len: f32, furthest_point: Node, stitch_size: f32, epsilon: f32) -> Result<(IsolinesVec, Node)> {
+        let (points, furthest_point) = self.get_isoline_points(dijkstras, furthest_len, furthest_point, stitch_size, epsilon)?;
         let faces = self.connect_isoline_faces(points)?;
         let isolines = self.connect_isoline_points(faces)?;
-        let isolines_lens: IsolinesVec = isolines.into_iter().map(|row|
+        let isolines_lens: NoDirIsolinesVec = isolines.into_iter().map(|row|
             row.into_iter().map(|circle|
                 (get_circle_len(&circle), circle)
             ).collect()
         ).collect();
-        let result = self.prune_isolines(isolines_lens, stitch_size )?;
-        Ok((result, furthest_point))
+        let result = self.prune_isolines(isolines_lens, stitch_size)?;
+        let mut new = Vec::with_capacity(result.len());
+        for isoline in result {
+            let mut result = Vec::with_capacity(isoline.len());
+            for (len, nodes) in isoline {
+                result.push(Circle {
+                    len,
+                    direction: self.check_circle_direction(epsilon, dijkstras, &nodes)?,
+                    nodes,
+                });
+            }
+            new.push(result);
+        };
+        Ok((new, furthest_point))
     }
 
     fn get_isoline_points(&self, map: &DijkstrasMap, len: f32, furthest_point: Node, stitch_size: f32, epsilon: f32) -> Result<(IsolinesOnEdgeMap, Node)> {
@@ -232,7 +252,118 @@ impl Processor {
         Ok(result)
     }
 
-    fn prune_isolines(&self, isolines: IsolinesVec, stitch_size: f32) -> Result<IsolinesVec> {
+    /// Some(true) is CW, Some(false) is CCW,
+    /// None is a failure due to a degenerate file
+    /// or due to insufficient information
+    fn check_circle_direction(&self, epsilon: f32, dijkstras: &DijkstrasMap, circle: &[NodeOnEdge]) -> Result<Option<bool>> {
+        let mut cw_votes = 0;
+        let mut ccw_votes = 0;
+        for [a, b] in cyclic_array_windows(circle) {
+            if a.edge == b.edge { continue; };
+            let face = self.face_connected_to_edges(a.edge, b.edge)?;
+            // these infinity and null values are known to be overwritten, as the for loop is at least length 1
+            // due to the chain.
+            let mut min_len = f32::INFINITY;
+            // this is a node "below" the isoline, for comparison
+            let mut min_node = Node { connectivity: Connectivity::OnVertex(0), pos: PVec3::splat(0.0) };
+            for [a, b] in self.edges_on_face(face) {
+                let nodes = self.spaced_points(a, b, epsilon)
+                    .into_iter()
+                    .map(|pos| Node { connectivity: Connectivity::on_edge(a, b), pos })
+                    .chain(Some(self.node_from_vertex(b)));
+                for node in nodes {
+                    let len = dijkstras.get(&node).unwrap().0;
+                    if len < min_len {
+                        min_len = len;
+                        min_node = node;
+                    }
+                }
+            }
+
+            let verticies = self.model.mesh.faces[face].vertices;
+            let index = |vertex| { verticies.iter().position(|v| *v == vertex).unwrap() };
+            let indexed_a = [index(a.edge.a), index(a.edge.b)];
+            let indexed_b = [index(b.edge.a), index(b.edge.b)];
+
+            let sort = |[a, b]: [usize; 2]| {
+                let ap = a.min(b);
+                let bp = a.max(b);
+                if ap + 1 == bp {
+                    [ap, bp]
+                } else {
+                    [bp, ap]
+                }
+            };
+            let sorted_indexed_a = sort(indexed_a);
+            let sorted_indexed_b = sort(indexed_b);
+
+            // Check if the start point and point a lies on the same edge, in this case no loop is required, and we
+            // must check the distance to the start point.
+            if let Connectivity::OnEdge(ea, eb) = min_node.connectivity && a.edge == (OnEdge { a: ea, b: eb }) {
+                let start_pos = self.model.mesh.vertices[verticies[sorted_indexed_a[0]]].into();
+                let diff = (min_node.pos - start_pos).magnitude_squared() - (a.pos - start_pos).magnitude_squared();
+                if diff < 0.0 {
+                    ccw_votes += 1;
+                } else if diff > 0.0 {
+                    cw_votes += 1;
+                }
+                continue;
+            }
+
+            // OnEdge order is constant
+            if let Connectivity::OnEdge(ea, eb) = min_node.connectivity && b.edge == (OnEdge { a: ea, b: eb }) {
+                let start_pos = self.model.mesh.vertices[verticies[sorted_indexed_b[0]]].into();
+                let diff = (min_node.pos - start_pos).magnitude_squared() - (b.pos - start_pos).magnitude_squared();
+                if diff < 0.0 {
+                    cw_votes += 1;
+                } else if diff > 0.0 {
+                    ccw_votes += 1;
+                }
+                continue;
+            }
+
+            let vertex = match min_node.connectivity {
+                Connectivity::OnVertex(a) => a,
+                Connectivity::OnEdge(a, _) => a,
+            };
+            let min_i = index(vertex);
+
+            let mut curr = sorted_indexed_a[1];
+            let end = sorted_indexed_b[1];
+            let mut broken = false;
+            while curr != end {
+                if curr == min_i {
+                    cw_votes += 1;
+                    broken = true;
+                    break;
+                }
+                curr += 1;
+                if curr == 3 {
+                    curr = 0;
+                }
+            };
+
+            if !broken {
+                ccw_votes += 1;
+            }
+        }
+
+        Ok(if cw_votes > ccw_votes {
+            if cw_votes as f32 * 0.7 > ccw_votes as f32 {
+                Some(true)
+            } else {
+                None
+            }
+        } else {
+            if ccw_votes as f32 * 0.7 > cw_votes as f32 {
+                Some(false)
+            } else {
+                None
+            }
+        })
+    }
+
+    fn prune_isolines(&self, isolines: NoDirIsolinesVec, stitch_size: f32) -> Result<NoDirIsolinesVec> {
         let draw_edge_point = |a: NodeOnEdge, b: NodeOnEdge, pruned| {
             let (group, edges, points, size) = if pruned {
                 (Group::IsolineConnectors, Srgba::RED, Srgba::RED, 0.01 * self.model.radius)

@@ -17,7 +17,7 @@ mod find_intersections;
 mod stitches;
 mod human_readable;
 
-use crate::{model::Model, process::{isolines::IsolinesVec, stitches::{StitchCommand, StitchDisplay}}, viewer::DisplayCommand};
+use crate::{model::Model, process::{isolines::{IsolinesVec, OnEdge}, stitches::{StitchCommand, StitchDisplay}}, viewer::DisplayCommand};
 use std::result::Result as StdResult;
 
 pub type Result<T> = StdResult<T, Error>;
@@ -305,6 +305,21 @@ impl Processor {
         [[v[0], v[1]], [v[1], v[2]], [v[2], v[0]]]
     }
 
+    /// This panics if a and b don't share a face.
+    /// Note that if a and b are the same, it returns one arbitrary
+    /// face that they are both connected to.
+    fn face_connected_to_edges(&self, a: OnEdge, b: OnEdge) -> Result<usize> {
+        let [f1, f2] = self.faces_connected_to_edge(a)?;
+        let [f3, f4] = self.faces_connected_to_edge(b)?;
+        if f1 == f3 || f1 == f4 {
+            Ok(f1)
+        } else if f2 == f3 || f2 == f4 {
+            Ok(f2)
+        } else {
+            panic!("a and b don't share a face.")
+        }
+    }
+
     /// Unwraps self.info with error message
     fn get_info_unwrapped(&self) -> &GeneratedInfo {
         self.info.as_ref().expect("This function should only be called after self.info has been set.")
@@ -323,4 +338,18 @@ fn remove_duplicates<T: PartialEq>(vec: Vec<T>) -> Vec<T> {
 
 fn hsv(h: f32, s: f32, v: f32) -> Srgba {
     Hsva::new(h, s, v, 1.0).to_srgb().into()
+}
+
+pub fn cyclic_array_windows<T, const V: usize>(vec: &[T]) -> impl Iterator<Item = [&T; V]> {
+    let len = vec.len();
+    (0..len).map(move |mut index| {
+        std::array::from_fn(|_| {
+            let v = &vec[index];
+            index += 1;
+            if index == len {
+                index = 0;
+            }
+            v
+        })
+    })
 }

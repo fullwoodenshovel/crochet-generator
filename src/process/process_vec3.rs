@@ -117,6 +117,10 @@ impl PVec3 {
             self.x() * other.y() - self.y() * other.x()
         ] }
     }
+
+    pub fn triangle_area(a: Self, b: Self, c: Self) -> f32 {
+        0.5 * (a - b).cross(a - c).magnitude()
+    }
 }
 
 impl From<Vector<f32>> for PVec3 {
