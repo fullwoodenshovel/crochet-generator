@@ -132,6 +132,7 @@ impl Processor {
 
         while let Some(mut next) = curr.children.pop() {
             if next.children.len() > 1 {
+                self.sender.send(DisplayCommand::MeshVisible(false)).unwrap();
                 return Err(Error {
                     issue: "Your object splits into multiple paths that you need to crochet seperately and stitch together.\nThis behaviour is not yet supported.".to_string(),
                     fault: ErrorFault::Code(None),

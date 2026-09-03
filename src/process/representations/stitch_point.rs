@@ -77,7 +77,7 @@ impl Format {
     pub fn get_conf(&self) -> HighlightConf {
         match self {
             Format::MagicCircle(_) => HighlightConf::space_seperator(),
-            Format::NextRow => HighlightConf::new(String::new(), "\n--- NEXT ROUND ---\n".to_string(), false),
+            Format::NextRow => HighlightConf::new(String::new(), "\n--- NEXT ROUND ---\n".to_string(), true, false),
             _ => HighlightConf::default()
         }
     }

@@ -138,8 +138,8 @@ impl Format {
 
     pub fn get_conf(&self) -> HighlightConf {
         match self {
-            Format::Row(n, m) => HighlightConf::new(String::new(), format!(".\nThis round should have {m} stitches.\n--- ROUND {n} ---\n"), false),
-            Format::Final(n) => HighlightConf::new(String::new(), format!(".\nThis round should have {n} stitches."), false),
+            Format::Row(n, m) => HighlightConf::new(String::new(), format!(".\nThis round should have {m} stitches.\n--- ROUND {n} ---\n"), true, false),
+            Format::Final(n) => HighlightConf::new(String::new(), format!(".\nThis round should have {n} stitches."), true, false),
             _ => HighlightConf::default()
         }
     }

@@ -2,7 +2,7 @@
 
 use std::{fmt::Display, ops::{Deref, DerefMut}};
 
-use crate::{process::{Group, Processor, human_readable::*, intermediate::{Highlight, InternalStitchCommand, StitchPoint}}, viewer::DisplayCommand};
+use crate::{process::{Group, Processor, representations::*, intermediate::{Highlight, InternalStitchCommand, StitchPoint}}, viewer::DisplayCommand};
 
 #[cfg(not(target_arch = "wasm32"))]
 use colored::Colorize;
@@ -232,15 +232,10 @@ impl Processor {
     }
 }
 
-pub enum StitchFormatChoice {
-    #[allow(unused)] // Potential to be used in future
-    StitchPoint,
-    Worded
-}
-
 pub enum StitchFormatter {
     StitchPoint(Vec<(StitchPointFormat, Vec<Highlight>)>),
     Worded(Vec<(WordedFormat, Vec<Highlight>)>),
+    CrochetParade(Vec<(CrochetParadeFormat, Vec<Highlight>)>),
 }
 
 impl StitchFormatter {
@@ -248,6 +243,7 @@ impl StitchFormatter {
         match format {
             StitchFormatChoice::StitchPoint => Self::StitchPoint(StitchPointFormat::from_intermediate(vec.into())),
             StitchFormatChoice::Worded => Self::Worded(WordedFormat::from_intermediate(vec.into(), final_highlights)),
+            StitchFormatChoice::CrochetParade => Self::CrochetParade(CrochetParadeFormat::from_intermediate(vec.into())),
         }
     }
 }
@@ -267,6 +263,10 @@ impl StitchDisplay {
             StitchFormatter::Worded(items) => (
                 items.into_iter().map(|(v, h)| (v.to_string(), h, v.get_conf())).collect(),
                 WordedFormat::SEPERATOR
+            ),
+            StitchFormatter::CrochetParade(items) => (
+                items.into_iter().map(|(v, h)| (v.to_string(), h, v.get_conf())).collect(),
+                CrochetParadeFormat::SEPERATOR
             ),
         };
 
@@ -294,7 +294,7 @@ impl StitchDisplay {
             }
             result_str.push_str(&config.suffix);
 
-            if config.seperator_follows && i != self.vec.len() - 1 {
+            if config.seperator_follows && i != self.vec.len() - 1 && self.vec[i+1].2.seperator_predecesses {
                 result_str.push_str(self.seperator);
             }
         }
@@ -329,12 +329,13 @@ pub struct HighlightConf {
     prefix: String,
     /// This is not highlighted
     suffix: String,
+    seperator_predecesses: bool,
     seperator_follows: bool,
 }
 
 impl HighlightConf {
-    pub fn new(prefix: String, suffix: String, seperator_follows: bool) -> Self {
-        Self { prefix, suffix, seperator_follows }
+    pub fn new(prefix: String, suffix: String, seperator_predecesses: bool, seperator_follows: bool) -> Self {
+        Self { prefix, suffix, seperator_predecesses, seperator_follows }
     }
 
     // pub fn no_seperator() -> Self {
@@ -342,12 +343,12 @@ impl HighlightConf {
     // }
 
     pub fn space_seperator() -> Self {
-        Self { prefix: String::new(), suffix: " ".to_string(), seperator_follows: false}
+        Self { prefix: String::new(), suffix: " ".to_string(), seperator_predecesses: true, seperator_follows: false}
     }
 }
 
 impl Default for HighlightConf {
     fn default() -> Self {
-        Self { prefix: String::new(), suffix: String::new(), seperator_follows: true }
+        Self { prefix: String::new(), suffix: String::new(), seperator_predecesses: true, seperator_follows: true }
     }
 }

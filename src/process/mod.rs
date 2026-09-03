@@ -15,7 +15,7 @@ mod sizes_calculator;
 pub use sizes_calculator::{Measurement, SizesCalculator, FixedHookCalculator, MEASUREMENTS};
 mod find_intersections;
 mod stitches;
-mod human_readable;
+mod representations;
 
 use crate::{model::Model, process::{isolines::{IsolinesVec, OnEdge}, stitches::{StitchCommand, StitchDisplay}}, viewer::DisplayCommand};
 use std::result::Result as StdResult;
@@ -228,6 +228,7 @@ impl Processor {
         let stitch_size = calculator.relative_to_stl(1.0, true);
 
         self.sender.send(DisplayCommand::ClearAll).unwrap();
+        self.sender.send(DisplayCommand::MeshVisible(true)).unwrap();
         self.sender.send(DisplayCommand::Point { pos: position, radius: self.model.radius * 0.02, colour: Srgba::BLUE, depth: true, group: Group::Seed }).unwrap();
         let epsilon = stitch_size * STITCH_SIZE_EPSILON_MULTIPLIER;
         let (nodes, furthest_point) = self.dijkstras(epsilon, position, face_index)?;
@@ -255,7 +256,7 @@ impl Processor {
         let tree = self.connect(&map, isolines)?;
         let (internal_stitches, boundary_info) = self.tree_into_stitches(tree, calculator, &map)?;
         let stitch_commands = StitchCommand::from_internal(internal_stitches, boundary_info.magic_circle, boundary_info.magic_highlights);
-        let readable_commands = StitchDisplay::from_internal(stitches::StitchFormatChoice::Worded, stitch_commands, boundary_info.final_circle);
+        let readable_commands = StitchDisplay::from_internal(representations::StitchFormatChoice::CrochetParade, stitch_commands, boundary_info.final_circle);
         self.overwrite_debug_stitches(&readable_commands);
         let result = format!("{readable_commands}");
         self.readable_commands = Some(readable_commands);
