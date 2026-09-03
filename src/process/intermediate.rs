@@ -131,7 +131,7 @@ impl Processor {
         }
 
         while let Some(mut next) = curr.children.pop() {
-            if curr.children.len() > 1 {
+            if next.children.len() > 1 {
                 return Err(Error {
                     issue: "Your object splits into multiple paths that you need to crochet seperately and stitch together.\nThis behaviour is not yet supported.".to_string(),
                     fault: ErrorFault::Code(None),

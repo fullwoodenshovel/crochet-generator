@@ -8,7 +8,7 @@ use super::*;
 
 pub type IsolinesMap = DetHashMap<OnEdge, Vec<(PVec3, (usize, usize, usize))>>;
 
-#[derive(Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CircleTree {
     pub circle: Vec<NodeOnEdge>,
     pub circle_len: f32,

@@ -219,12 +219,10 @@ impl Processor {
 
     fn generate_from_seed(&mut self, position: PVec3, face_index: usize, calculator: FixedHookCalculator) -> Result<Output> {
         println!("{position:?} {face_index}");
-        #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
-        let position = PVec3::from([70.41322, 5.5, 68.19897]);
-        // let position = Vector([69.16377, 5.500004, 69.32267]);
-        #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
-        let face_index = 0;
-        // let face_index = 417;
+        // #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+        // let position = PVec3::from([70.41322, 5.5, 68.19897]);
+        // #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+        // let face_index = 0;
         const STITCH_SIZE_EPSILON_MULTIPLIER: f32 = 0.25;
         
         let stitch_size = calculator.relative_to_stl(1.0, true);
