@@ -208,6 +208,8 @@ impl Processor {
 
     pub fn overwrite_debug_stitches(&self, display: &StitchDisplay) {
         self.sender.send(DisplayCommand::Clear(Group::StitchFaceOutline)).unwrap();
+        self.sender.send(DisplayCommand::Clear(Group::Backtrack)).unwrap();
+        self.sender.send(DisplayCommand::Clear(Group::ReverseTraverse)).unwrap();
 
         for highlight in display.iter().flat_map(|(_, highlight, _)| highlight) {
             self.sender.send(DisplayCommand::Edge {
