@@ -51,8 +51,8 @@ impl Highlight {
         Self(null, null)
     }
 
-    fn new(pos1: PVec3, isoline_index1: usize, pos2: PVec3, isoline_index_2: usize) -> Self {
-        Self(HighlightPoint { pos: pos1, isoline_index: isoline_index1 }, HighlightPoint { pos: pos2, isoline_index: isoline_index_2 })
+    pub fn new(curr_pos: PVec3, curr_isoline_index: usize, next_pos: PVec3, next_isoline_index: usize) -> Self {
+        Self(HighlightPoint { pos: curr_pos, isoline_index: curr_isoline_index }, HighlightPoint { pos: next_pos, isoline_index: next_isoline_index })
     }
 }
 
@@ -238,16 +238,20 @@ impl Processor {
                         costs.push((0.0, NextRow(Highlight::null(), Highlight::null()), [StitchPoint::null(); 3]));
                         continue;
                     } else if i_cost == f64::INFINITY {
-                        costs.push((j_cost, MoveNext(highlight_from_arr(&j_points)), j_points));
+                        costs.push((j_cost, MoveNext(highlight_from_arr(&j_points, false)), j_points));
                         continue;
                     } else if j_cost == f64::INFINITY {
-                        costs.push((i_cost, MoveCurr(highlight_from_arr(&i_points)), i_points));
+                        costs.push((i_cost, MoveCurr(highlight_from_arr(&i_points, true)), i_points));
                         continue;
                     }
 
-                    fn highlight_from_arr(arr: &[StitchPoint; 3]) -> Highlight {
+                    fn highlight_from_arr(arr: &[StitchPoint; 3], curr: bool) -> Highlight {
                         // ignores arr[0] as that point is now skipped.
-                        Highlight(HighlightPoint::from(arr[1]), HighlightPoint::from(arr[2]))
+                        if curr {
+                            Highlight(HighlightPoint::from(arr[1]), HighlightPoint::from(arr[2]))
+                        } else {
+                            Highlight(HighlightPoint::from(arr[2]), HighlightPoint::from(arr[1]))
+                        }
                     }
 
                     // Let binding to ensure at compile time that all branches produce an output
@@ -259,10 +263,10 @@ impl Processor {
                             j as f32 / n as f32 > i as f32 / m as f32
                         {
                             // Both checks passed
-                            (j_cost, MoveNext(highlight_from_arr(&j_points)), j_points)
+                            (j_cost, MoveNext(highlight_from_arr(&j_points, false)), j_points)
                         } else {
                             // Some check didnt pass
-                            (i_cost, MoveCurr(highlight_from_arr(&i_points)), i_points)
+                            (i_cost, MoveCurr(highlight_from_arr(&i_points, true)), i_points)
                         }
                     } else {
                         // Same thing, other way around
@@ -275,9 +279,9 @@ impl Processor {
                             // "staircase" with Next, Next, Curr, Curr, ..., in order to better lean towards 2sc.
                             i as f32 / m as f32 >= j as f32 / n as f32
                         {
-                            (i_cost, MoveCurr(highlight_from_arr(&i_points)), i_points)
+                            (i_cost, MoveCurr(highlight_from_arr(&i_points, true)), i_points)
                         } else {
-                            (j_cost, MoveNext(highlight_from_arr(&j_points)), j_points)
+                            (j_cost, MoveNext(highlight_from_arr(&j_points, false)), j_points)
                         }
                     };
 
@@ -290,20 +294,17 @@ impl Processor {
             let mut index = (n + 1) * (m + 1) - 1;
             let mut nexts = 0;
             let mut currs = 0;
-            let mut result = String::new();
             loop {
                 match costs[index].1 {
                     InternalStitchCommand::MoveCurr(_) => {
                         row.push(costs[index]);
                         index -= n + 1;
                         currs += 1;
-                        result.push('c');
                     },
                     InternalStitchCommand::MoveNext(_) => {
                         row.push(costs[index]);
                         index -= 1;
                         nexts += 1;
-                        result.push('n');
                     },
                     // The highlights in this ISC are null, so they can be ignored.
                     InternalStitchCommand::NextRow(_, _) => break,

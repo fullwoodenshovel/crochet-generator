@@ -13,5 +13,6 @@ pub enum StitchFormatChoice {
     StitchPoint,
     #[allow(unused)] // Potential to be used in future
     CrochetParade,
+    #[allow(unused)] // In testing this could remain unused
     Worded,
 }

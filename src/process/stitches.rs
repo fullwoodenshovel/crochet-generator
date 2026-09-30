@@ -2,7 +2,7 @@
 
 use std::{fmt::Display, ops::{Deref, DerefMut}};
 
-use crate::{process::{Group, Processor, representations::*, intermediate::{Highlight, InternalStitchCommand, StitchPoint}}, viewer::DisplayCommand};
+use crate::{process::{Group, Processor, intermediate::{Highlight, HighlightPoint, InternalStitchCommand, StitchPoint}, representations::*, stitches::StitchCommand::Inc}, viewer::DisplayCommand};
 
 #[cfg(not(target_arch = "wasm32"))]
 use colored::Colorize;
@@ -57,28 +57,13 @@ pub enum StitchCommand {
     NextRow(Vec<Highlight>),
 }
 
-enum MidStitchCommand {
-    Inc(usize, Vec<Highlight>),
-    Dec(usize, Vec<Highlight>),
-    Skip(usize, Vec<Highlight>),
-}
-
-impl MidStitchCommand {
-    fn into_stitch_command(self) -> StitchCommand {
-        match self {
-            Self::Inc(n, highlight) => StitchCommand::Inc(n, highlight),
-            Self::Dec(n, highlight) => StitchCommand::Dec(n, highlight),
-            Self::Skip(n, highlight) => StitchCommand::Skip(n, highlight)
-        }
-    }
-}
-
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 enum MoveStitch {
     Curr,
     Next
 }
 
+#[derive(Clone, Copy)]
 struct Move {
     stitch: MoveStitch,
     highlight: Highlight,
@@ -91,92 +76,97 @@ impl Move {
 }
 
 impl StitchCommand {
+    fn row_to_stitches(chain: Highlight, row: &[Move]) -> Vec<Self> {
+        let mut nexts: Vec<(HighlightPoint, Vec<(HighlightPoint, usize)>)> = Vec::new();
+        let mut curr = 0;
+        for i in row {
+            if matches!(i.stitch, MoveStitch::Curr) {
+                curr += 1;
+            }
+            if let Some((next, v)) = nexts.last_mut() && *next == i.highlight.1 {
+                v.push((i.highlight.0, curr));
+            } else {
+                nexts.push((i.highlight.1, vec![(i.highlight.0, curr)]));
+            }
+        }
+
+        let mut stitches = Vec::new();
+        for (reference, vec) in &nexts {
+            let ref_pos = reference.pos;
+            let mut min_d = f32::INFINITY;
+            let mut min_i = usize::MAX;
+            let mut min_ii = usize::MAX;
+            for (inner_index, &(check, index)) in vec.iter().enumerate() {
+                let d = (ref_pos - check.pos).magnitude_squared();
+                if d < min_d {
+                    min_d = d;
+                    min_i = index;
+                    min_ii = inner_index;
+                }
+            }
+            stitches.push((min_i, Highlight(vec[min_ii].0, *reference)));
+        }
+        
+        let mut result = Vec::new();
+        let mut prev_n;
+        let start = stitches.first().unwrap().1;
+        let mut prev_h;
+        if start.0 == chain.0 {
+            prev_h = vec![chain, start];
+            prev_n = 2;
+        } else {
+            result.push(Inc(1, vec![chain]));
+            prev_h = vec![start];
+            prev_n = 1;
+        }
+        // Potentially push a 0 to the front of stitches.
+        for &[(pa, _ha), (pb, hb)] in stitches.array_windows() {
+            let d = pb - pa;
+            if d == 0 {
+                prev_h.push(hb);
+                prev_n += 1;
+            } else if d == 1 {
+                result.push(Self::Inc(prev_n, prev_h));
+                prev_n = 1;
+                prev_h = vec![hb];
+            } else if prev_n == 1 {
+                result.push(Self::Dec(d - 1, prev_h));
+                prev_n = 1;
+                prev_h = vec![hb];
+            } else {
+                result.push(Self::Inc(prev_n, prev_h));
+                result.push(Self::Skip(d - 1, vec![]));
+                prev_n = 1;
+                prev_h = vec![hb];
+            }
+        }
+        result
+    }
+
     pub fn from_internal(stitches: Vec<InternalStitchCommand>, magic_circle: usize, magic_highlights: Vec<Highlight>) -> Vec<Self> {
         use InternalStitchCommand as ISC;
         use MoveStitch::*;
         let mut result = vec![Self::MagicCircle(magic_circle, magic_highlights)];
-        let mut curr = MidStitchCommand::Inc(1, Vec::new());
-        assert!(matches!(stitches[0], ISC::NextRow(_, _)));
-        for [stitch, next_stitch] in stitches.array_windows().map(|[a, b]| [*a, *b]).chain(Some([*stitches.last().unwrap(), ISC::NextRow(Highlight::null(), Highlight::null())])) {
+        let ISC::NextRow(_, mut chain) = stitches[0] else { panic!("Impossible") };
+        let mut currv = Vec::new();
+        for stitch in stitches {
             let moving = match stitch {
                 ISC::MoveCurr(highlight) => Move::new(Curr, highlight),
                 ISC::MoveNext(highlight) => Move::new(Next, highlight),
-                ISC::NextRow(ss, chain) => {
-                    // assert!(matches!(curr, MidStitchCommand::Inc(1, _)));
-                    if let MidStitchCommand::Inc(n, highlight) = curr && n > 1 {
-                        result.push(Self::Inc(n - 1, highlight))
+                ISC::NextRow(ss, next_chain) => {
+                    if !currv.is_empty() {
+                        result.append(&mut Self::row_to_stitches(chain, &currv));
+                        currv.clear();
                     }
+                    chain = next_chain;
                     result.push(Self::NextRow(vec![ss]));
-                    curr = MidStitchCommand::Inc(1, vec![chain]);
                     continue;
                 }
             };
-
-            if moving.highlight.0.isoline_index == 0 && moving.highlight.1.isoline_index == 0 {
-                continue;
-            }
-
-            if matches!(moving.stitch, Curr) && matches!(next_stitch, ISC::NextRow(_, _)) {
-                continue;
-            }
-
-            match curr {
-                MidStitchCommand::Inc(n, mut highlight) => match moving.stitch {
-                    Curr => if n == 0 {
-                        // This can only happen in the case that curr was an increase n >= 2, and then Move::Curr happened twice in a row.
-                        // curr = MidStitchCommand::Skip(1, vec![moving.highlight]);
-                        curr = MidStitchCommand::Skip(1, Vec::new());
-                        if !matches!(next_stitch, ISC::MoveCurr(_)) {
-                            result.push(curr.into_stitch_command());
-                            curr = MidStitchCommand::Inc(0, Vec::new())
-                        }
-                    } else if n == 1 {
-                        // highlight.push(moving.highlight);
-                        if matches!(next_stitch, ISC::MoveCurr(_)) {
-                            curr = MidStitchCommand::Dec(0, highlight);
-                        } else {
-                            result.push(StitchCommand::Inc(1, highlight));
-                            curr = MidStitchCommand::Inc(0, Vec::new())
-                        }
-                    } else {
-                        // highlight.push(moving.highlight);
-                        result.push(StitchCommand::Inc(n, highlight));
-                        curr = MidStitchCommand::Inc(0, Vec::new());
-                    },
-                    Next => {
-                        highlight.push(moving.highlight);
-                        curr = MidStitchCommand::Inc(n + 1, highlight)
-                    },
-                },
-                MidStitchCommand::Dec(n, highlight) => match moving.stitch {
-                    Curr => {
-                        // highlight.push(moving.highlight);
-                        curr = MidStitchCommand::Dec(n + 1, highlight);
-                        if !matches!(next_stitch, ISC::MoveCurr(_)) {
-                            result.push(curr.into_stitch_command());
-                            curr = MidStitchCommand::Inc(0, Vec::new())
-                        }
-                    },
-                    Next => {
-                        panic!();
-                        // let stitch_command = MidStitchCommand::Dec(n, highlight).into_stitch_command();
-                        // result.push(stitch_command);
-                        // curr = MidStitchCommand::Inc(0, vec![moving.highlight])
-                    },
-                },
-                MidStitchCommand::Skip(n, mut highlight) => match moving.stitch {
-                    Curr => {
-                        highlight.push(moving.highlight);
-                        curr = MidStitchCommand::Skip(n + 1, highlight);
-                        if !matches!(next_stitch, ISC::MoveCurr(_)) {
-                            result.push(curr.into_stitch_command());
-                            curr = MidStitchCommand::Inc(0, Vec::new())
-                        }
-                    }
-                    Next => panic!("Impossible"),
-                }
-            };
+            currv.push(moving);
         }
+
+        result.append(&mut Self::row_to_stitches(chain, &currv));
         
         result
     }

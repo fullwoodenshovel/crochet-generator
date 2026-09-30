@@ -219,10 +219,12 @@ impl Processor {
 
     fn generate_from_seed(&mut self, position: PVec3, face_index: usize, calculator: FixedHookCalculator) -> Result<Output> {
         println!("{position:?} {face_index}");
-        // #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
-        // let position = PVec3::from([70.41322, 5.5, 68.19897]);
-        // #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+        #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+        // let position = PVec3::from([69.74365, 5.4999924, 69.00746]);
+        let position = PVec3::from([125.365234, 3.3382854, -105.95316]);
+        #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
         // let face_index = 0;
+        let face_index = 550318;
         const STITCH_SIZE_EPSILON_MULTIPLIER: f32 = 0.25;
         
         let stitch_size = calculator.relative_to_stl(1.0, true);
@@ -256,7 +258,7 @@ impl Processor {
         let tree = self.connect(&map, isolines)?;
         let (internal_stitches, boundary_info) = self.tree_into_stitches(tree, calculator, &map)?;
         let stitch_commands = StitchCommand::from_internal(internal_stitches, boundary_info.magic_circle, boundary_info.magic_highlights);
-        let readable_commands = StitchDisplay::from_internal(representations::StitchFormatChoice::CrochetParade, stitch_commands, boundary_info.final_circle);
+        let readable_commands = StitchDisplay::from_internal(representations::StitchFormatChoice::Worded, stitch_commands, boundary_info.final_circle);
         self.overwrite_debug_stitches(&readable_commands);
         let result = format!("{readable_commands}");
         self.readable_commands = Some(readable_commands);
