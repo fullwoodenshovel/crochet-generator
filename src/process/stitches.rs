@@ -207,9 +207,15 @@ impl Processor {
     }
 
     pub fn overwrite_debug_stitches(&self, display: &StitchDisplay) {
-        self.sender.send(DisplayCommand::Clear(Group::StitchFaceOutline)).unwrap();
-        self.sender.send(DisplayCommand::Clear(Group::Backtrack)).unwrap();
-        self.sender.send(DisplayCommand::Clear(Group::ReverseTraverse)).unwrap();
+        self.sender.send(DisplayCommand::ClearAll).unwrap();
+        let seed = self.get_info_unwrapped().seed_point;
+        self.sender.send(DisplayCommand::Point {
+            pos: seed,
+            radius: self.model.radius * 0.02,
+            colour: Srgba::BLUE,
+            depth: true,
+            group: Group::Seed
+        }).unwrap();
 
         for highlight in display.iter().flat_map(|(_, highlight, _)| highlight) {
             self.sender.send(DisplayCommand::Edge {
