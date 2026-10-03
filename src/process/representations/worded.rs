@@ -16,7 +16,7 @@ pub enum Format {
     Chain,
     /// Put <n> Single crochets into this stitch
     Inc(usize),
-    /// Put a Chain 1 (count as sc) AND <n-1> Single crochets <n-1> into this stitch
+    /// Put a Chain 1 (count as sc) AND <n-1> Single crochets into this stitch
     ChainInc(usize),
     /// Put a Chain 1 (count as sc) AND a Single crochet into this stitch
     ChainSc,

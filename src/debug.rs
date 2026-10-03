@@ -49,6 +49,11 @@ impl DebugRenderer {
         self.groups.remove(&name);
     }
 
+    /// Remove every feature except those drawn under `names`.
+    pub fn clear_all_except(&mut self, name: Vec<usize>) {
+        self.groups.retain(|k, _v| name.contains(k));
+    }
+
     /// Remove every feature under every name.
     pub fn clear_all(&mut self) {
         self.groups.clear();

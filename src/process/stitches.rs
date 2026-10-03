@@ -83,13 +83,19 @@ impl StitchCommand {
             if matches!(i.stitch, MoveStitch::Curr) {
                 curr += 1;
             }
+            if i.highlight.1 == chain.1 {
+                // Removes stitches going into the first stitch from computation.
+                continue;
+            }
+            let value = (i.highlight.0, curr);
             if let Some((next, v)) = nexts.last_mut() && *next == i.highlight.1 {
-                v.push((i.highlight.0, curr));
+                v.push(value);
             } else {
-                nexts.push((i.highlight.1, vec![(i.highlight.0, curr)]));
+                nexts.push((i.highlight.1, vec![value]));
             }
         }
 
+        let mut result = Vec::new();
         let mut stitches = Vec::new();
         for (reference, vec) in &nexts {
             let ref_pos = reference.pos;
@@ -106,40 +112,33 @@ impl StitchCommand {
             }
             stitches.push((min_i, Highlight(vec[min_ii].0, *reference)));
         }
-        
-        let mut result = Vec::new();
-        let mut prev_n;
+
         let start = stitches.first().unwrap().1;
         let mut prev_h;
         if start.0 == chain.0 {
             prev_h = vec![chain, start];
-            prev_n = 2;
         } else {
             result.push(Inc(1, vec![chain]));
             prev_h = vec![start];
-            prev_n = 1;
         }
-        // Potentially push a 0 to the front of stitches.
+
         for &[(pa, _ha), (pb, hb)] in stitches.array_windows() {
             let d = pb - pa;
             if d == 0 {
                 prev_h.push(hb);
-                prev_n += 1;
             } else if d == 1 {
-                result.push(Self::Inc(prev_n, prev_h));
-                prev_n = 1;
+                result.push(Self::Inc(prev_h.len(), prev_h));
                 prev_h = vec![hb];
-            } else if prev_n == 1 {
+            } else if prev_h.len() == 1 {
                 result.push(Self::Dec(d - 1, prev_h));
-                prev_n = 1;
                 prev_h = vec![hb];
             } else {
-                result.push(Self::Inc(prev_n, prev_h));
+                result.push(Self::Inc(prev_h.len(), prev_h));
                 result.push(Self::Skip(d - 1, vec![]));
-                prev_n = 1;
                 prev_h = vec![hb];
             }
         }
+        result.push(Self::Inc(prev_h.len(), prev_h));
         result
     }
 
@@ -166,6 +165,7 @@ impl StitchCommand {
             currv.push(moving);
         }
 
+        // println!("{:?}", currv.iter().map(|m| m.stitch).collect::<Vec<_>>());
         result.append(&mut Self::row_to_stitches(chain, &currv));
         
         result
@@ -207,7 +207,7 @@ impl Processor {
     }
 
     pub fn overwrite_debug_stitches(&self, display: &StitchDisplay) {
-        self.sender.send(DisplayCommand::ClearAll).unwrap();
+        self.sender.send(DisplayCommand::ClearAllExcept(vec![Group::StitchFace, Group::StitchRow, Group::Seam])).unwrap();
         let seed = self.get_info_unwrapped().seed_point;
         self.sender.send(DisplayCommand::Point {
             pos: seed,

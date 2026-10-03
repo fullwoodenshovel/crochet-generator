@@ -131,15 +131,6 @@ impl Processor {
         }
 
         while let Some(mut next) = curr.children.pop() {
-            if next.children.len() > 1 {
-                self.sender.send(DisplayCommand::MeshVisible(false)).unwrap();
-                return Err(Error {
-                    issue: "Your object splits into multiple paths that you need to crochet seperately and stitch together.\nThis behaviour is not yet supported.".to_string(),
-                    fault: ErrorFault::Code(None),
-                    solution: "Chose a seed such that the object won't split, or chose a different object file.",
-                })
-            }
-            
             let cmp_data: (usize, &IsolinesMap, &[NodeOnEdge], f32) = (isoline, isolines_map, &curr.isoline_points, curr.circle_len);
             let next_v = next.spaced_points[0];
 
@@ -214,12 +205,15 @@ impl Processor {
             // This tolerance doesn't just check for floating point error.
             // It also ensures to prefer 2sc as opposed to mildly more "optimal"
             // inc-dec pairs.
-            //
+
             // 0.5 * scw * sch is nominal triangle, with 5% tolerance.
             // let tolerance = 0.05 * 0.5 * scw * sch;
+
             // 2.0 * (scw * scw + sch * sch) is nominal cost value, with 5% tolerance.
             let tolerance = 2.0 * (scw * scw + sch * sch) * 0.05;
             let tolerance = tolerance as f64;
+
+            // let tolerance = 0.0;
             // let tolerance = f64::INFINITY;
             for i in 0..m + 1 {
                 for j in 0..n + 1 {
@@ -328,6 +322,16 @@ impl Processor {
             final_circle = next.spaced_points.clone();
             curr = next;
             isoline += 1;
+
+            if curr.children.len() > 1 {
+                self.sender.send(DisplayCommand::Clear(Group::Backtrack)).unwrap();
+                self.sender.send(DisplayCommand::MeshVisible(false)).unwrap();
+                return Err(Error {
+                    issue: "Your object splits into multiple paths that you need to crochet seperately and stitch together.\nThis behaviour is not yet supported.".to_string(),
+                    fault: ErrorFault::Code(None),
+                    solution: "Chose a seed such that the object won't split, or chose a different object file.",
+                })
+            }
         }
 
         self.sender.send(DisplayCommand::Point {
@@ -346,7 +350,6 @@ impl Processor {
 
         for [a, b] in cyclic_array_windows(&curr.spaced_points) {
             self.send_stitch(b.pos, furthest_point, a.pos);
-            internal_result.push(InternalStitchCommand::MoveCurr(Highlight((*a).into(), HighlightPoint { pos: furthest_point, isoline_index: 0 })));
         }
 
         self.sender.send(DisplayCommand::Clear(Group::Backtrack)).unwrap();
@@ -363,13 +366,21 @@ impl Processor {
             depth: true,
             group: Group::StitchFaceOutline,
         }).unwrap();
+        self.sender.send(DisplayCommand::Edge {
+            a: prev_point,
+            b,
+            thickness: self.model.radius * 0.01,
+            colour: Srgba::new(80, 80, 0, 192),
+            depth: true,
+            group: Group::StitchFaceOutline,
+        }).unwrap();
         self.sender.send(DisplayCommand::Face {
             a,
             b,
             c: prev_point,
             colour: Srgba::new(200, 200, 200, 255),
             depth: true,
-            group: Group::Stitch,
+            group: Group::StitchFace,
         }).unwrap();
     }
 

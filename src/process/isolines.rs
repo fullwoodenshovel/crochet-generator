@@ -58,9 +58,10 @@ impl Processor {
 
     fn get_isoline_points(&self, map: &DijkstrasMap, len: f32, furthest_point: Node, stitch_size: f32, epsilon: f32) -> Result<(IsolinesOnEdgeMap, Node)> {
         let old_ss = stitch_size;
-        let total_lines = (len / old_ss).round();
+        // 0.5 here so that the last round has a lot fewer stitches - necessary to fasten it off.
+        let total_lines = (len / old_ss + 0.5).round();
         let utotal_lines = total_lines as usize;
-        let stitch_size = len / total_lines;
+        let stitch_size = len / (total_lines - 0.5);
         let div_1_stitch_size = 1.0 / stitch_size;
         println!("Stitch size off by {:.2}%", 100.0 * (1.0 - stitch_size / old_ss).abs());
 

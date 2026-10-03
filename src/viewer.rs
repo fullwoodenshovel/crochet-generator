@@ -17,6 +17,7 @@ type OutputResult = crate::process::Result<Output>;
 
 pub enum DisplayCommand {
     ClearAll,
+    ClearAllExcept(Vec<Group>),
     Clear(Group),
     MeshVisible(bool),
     Point {
@@ -268,6 +269,7 @@ impl Viewer {
             while let Ok(command) = self.receiver.try_recv() {
                 match command {
                     DisplayCommand::ClearAll => self.debug.clear_all(),
+                    DisplayCommand::ClearAllExcept(names) => self.debug.clear_all_except(names.into_iter().map(|i| i as usize).collect()),
                     DisplayCommand::Clear(name) => self.debug.clear(name as usize),
                     DisplayCommand::Point { pos, radius, colour, depth, group } => self.debug.point(group as usize, pos.into(), radius, colour, depth),
                     DisplayCommand::Edge { a, b, thickness, colour, depth, group } => self.debug.edge(group as usize, a.into(), b.into(), thickness, colour, depth),

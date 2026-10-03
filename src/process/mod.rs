@@ -145,6 +145,7 @@ pub enum Group {
     Seam,
     StitchFaceOutline,
     Stitch,
+    StitchFace,
     HighlightedStitch,
     StitchRow,
 }
@@ -219,12 +220,10 @@ impl Processor {
 
     fn generate_from_seed(&mut self, position: PVec3, face_index: usize, calculator: FixedHookCalculator) -> Result<Output> {
         println!("{position:?} {face_index}");
-        #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
-        // let position = PVec3::from([69.74365, 5.4999924, 69.00746]);
-        let position = PVec3::from([125.365234, 3.3382854, -105.95316]);
-        #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+        // #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+        // let position = PVec3::from([70.13133, 5.500004, 68.54935]);
+        // #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
         // let face_index = 0;
-        let face_index = 550318;
         const STITCH_SIZE_EPSILON_MULTIPLIER: f32 = 0.25;
         
         let stitch_size = calculator.relative_to_stl(1.0, true);
