@@ -48,6 +48,7 @@ impl Measurement {
 
 #[derive(Debug, Clone, Copy)]
 pub struct SizesCalculator {
+    mult_factor: f32,
     height_coeffs: (f32, f32, f32),
     width_coeffs: (f32, f32, f32),
 }
@@ -59,14 +60,14 @@ impl SizesCalculator {
         let x1 = data.iter().map(|measurement| measurement.relative_size).collect::<Vec<_>>();
         let x2 = data.iter().map(|measurement| measurement.hook_size_mm).collect::<Vec<_>>();
         let z = data.iter().map(|measurement| measurement.measured_height_cm).collect::<Vec<_>>();
+
         let height_coeffs = fit_plane(&x1, &x2, &z)? * mult_factor;
         
-        let x1 = data.iter().map(|measurement| measurement.relative_size).collect::<Vec<_>>();
-        let x2 = data.iter().map(|measurement| measurement.hook_size_mm).collect::<Vec<_>>();
         let z = data.iter().map(|measurement| measurement.measured_width_cm).collect::<Vec<_>>();
         let width_coeffs = fit_plane(&x1, &x2, &z)? * mult_factor;
 
         let result = Self {
+            mult_factor,
             height_coeffs: (height_coeffs.x, height_coeffs.y, height_coeffs.z),
             width_coeffs: (width_coeffs.x, width_coeffs.y, width_coeffs.z),
         };
@@ -102,7 +103,9 @@ impl SizesCalculator {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct FixedHookCalculator {
+    mult_factor: f32,
     height_coeffs: (f32, f32),
     width_coeffs: (f32, f32),
 }
@@ -110,6 +113,7 @@ pub struct FixedHookCalculator {
 impl FixedHookCalculator {
     pub fn from_sizes_calculator(calculator: SizesCalculator, hook_size_mm: f32) -> Result<Self> {
         let result = Self {
+            mult_factor: calculator.mult_factor,
             height_coeffs: (calculator.height_coeffs.0 + calculator.height_coeffs.2 * hook_size_mm, calculator.height_coeffs.1),
             width_coeffs: (calculator.width_coeffs.0 + calculator.width_coeffs.2 * hook_size_mm, calculator.width_coeffs.1),
         };
@@ -136,6 +140,10 @@ impl FixedHookCalculator {
         } else {
             self.width_coeffs.0 + self.width_coeffs.1 * relative_size
         }
+    }
+
+    pub fn relative_to_actual_cm(&self, relative_size: f32, height: bool) -> f32 {
+        self.relative_to_stl(relative_size, height) / self.mult_factor
     }
 
     // pub fn stl_to_relative(&self, stl_units: f32, height: bool) -> f32 {

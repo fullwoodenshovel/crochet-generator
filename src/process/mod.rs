@@ -17,7 +17,7 @@ mod find_intersections;
 mod stitches;
 mod representations;
 
-use crate::{model::Model, process::{isolines::{IsolinesVec, OnEdge}, stitches::{StitchCommand, StitchDisplay}}, viewer::DisplayCommand};
+use crate::{model::Model, process::{isolines::{IsolinesVec, OnEdge}, stitches::{Metadata, StitchCommand, StitchDisplay}}, viewer::DisplayCommand};
 use std::result::Result as StdResult;
 
 pub type Result<T> = StdResult<T, Error>;
@@ -220,10 +220,10 @@ impl Processor {
 
     fn generate_from_seed(&mut self, position: PVec3, face_index: usize, calculator: FixedHookCalculator) -> Result<Output> {
         println!("{position:?} {face_index}");
-        // #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
-        // let position = PVec3::from([70.13133, 5.500004, 68.54935]);
-        // #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
-        // let face_index = 0;
+        #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+        let position = PVec3::from([32.97618, -84.727356, -35.73342]);
+        #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+        let face_index = 8457;
         const STITCH_SIZE_EPSILON_MULTIPLIER: f32 = 0.25;
         
         let stitch_size = calculator.relative_to_stl(1.0, true);
@@ -257,7 +257,8 @@ impl Processor {
         let tree = self.connect(&map, isolines)?;
         let (internal_stitches, boundary_info) = self.tree_into_stitches(tree, calculator, &map)?;
         let stitch_commands = StitchCommand::from_internal(internal_stitches, boundary_info.magic_circle, boundary_info.magic_highlights);
-        let readable_commands = StitchDisplay::from_internal(representations::StitchFormatChoice::Worded, stitch_commands, boundary_info.final_circle);
+        let metadata = Metadata { final_highlights: boundary_info.final_circle, calculator };
+        let readable_commands = StitchDisplay::from_internal(representations::StitchFormatChoice::Worded, stitch_commands, metadata);
         self.overwrite_debug_stitches(&readable_commands);
         let result = format!("{readable_commands}");
         self.readable_commands = Some(readable_commands);

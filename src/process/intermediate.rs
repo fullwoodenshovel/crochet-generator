@@ -56,6 +56,13 @@ impl Highlight {
     }
 }
 
+impl<T: Into<HighlightPoint>> From<[T; 2]> for Highlight {
+    fn from(value: [T; 2]) -> Self {
+        let [a, b] = value;
+        Highlight(a.into(), b.into())
+    }
+}
+
 #[derive(Clone, Copy, PartialEq)]
 pub struct HighlightPoint {
     pub pos: PVec3,
