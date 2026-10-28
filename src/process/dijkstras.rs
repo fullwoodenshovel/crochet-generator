@@ -200,7 +200,13 @@ impl Processor {
         let a: PVec3 = self.model.mesh.vertices[a].into();
         let b: PVec3 = self.model.mesh.vertices[b].into();
         let magnitude = (a - b).magnitude();
-        let spaces = (magnitude / epsilon).ceil();
+        // This should be optional - it does nothing on most models.
+        let spaces = if epsilon * 3.0 > magnitude {
+            2.0
+        } else {
+            (magnitude / epsilon).ceil()
+        };
+        // let spaces = (magnitude / epsilon).ceil();
         let uspaces = spaces as usize - 1;
         let diff = (a - b) / spaces;
         let mut fin = b;

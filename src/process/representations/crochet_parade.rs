@@ -2,7 +2,7 @@
 
 use std::{collections::VecDeque, fmt::Display};
 
-use crate::process::{intermediate::Highlight, stitches::{HighlightConf, StitchCommand}};
+use crate::process::{intermediate::Highlight, stitches::{HighlightConf, Metadata, StitchCommand}};
 
 
 pub enum Format {
@@ -20,12 +20,14 @@ pub enum Format {
     NextRow,
     /// @[-1,0]
     Anchor,
+    /// tie_up
+    Finish,
 }
 
 impl Format {
     pub const SEPERATOR: &str = ",";
 
-    pub fn from_intermediate(mut vec: VecDeque<StitchCommand>) -> Vec<(Self, Vec<Highlight>)> {
+    pub fn from_intermediate(mut vec: VecDeque<StitchCommand>, metadata: Metadata) -> Vec<(Self, Vec<Highlight>)> {
         let mut result = Vec::new();
         let StitchCommand::MagicCircle(circle, highlights) = vec.pop_front().unwrap() else { panic!("Unexpected stitch") };
         result.push((Self::MagicCircle(circle), highlights));
@@ -53,6 +55,11 @@ impl Format {
             }
         }
 
+        result.append(&mut vec![
+            (Self::NextRow, Vec::new()),
+            (Self::Finish, metadata.final_highlights.array_windows().cloned().map(|v| v.into()).collect::<Vec<_>>())
+        ]);
+
         result
     }
 
@@ -72,11 +79,12 @@ impl Display for Format {
             Format::MagicCircle(n) => write!(f, "ring\nsc{n}inc"),
             Format::Sc => write!(f, "sc"),
             Format::Inc(n) => write!(f, "sc{n}inc"),
-            Format::Dec(n) => write!(f, "sc,{n}sk"),
+            Format::Dec(n) => write!(f, "sc{}tog", n+1),
             Format::Skip(n) => write!(f, "{n}sk"),
             #[allow(clippy::write_with_newline)] // For clarity and consistency
             Format::NextRow => write!(f, "\n"),
             Format::Anchor => write!(f, "@[-1,0]"),
+            Format::Finish => write!(f, "tie_up"),
         }
     }
 }

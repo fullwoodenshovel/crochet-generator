@@ -2,7 +2,7 @@
 
 use std::{collections::VecDeque, fmt::{Debug, Display}, ops::{Deref, DerefMut}};
 
-use crate::{process::{FixedHookCalculator, Group, Processor, intermediate::{Highlight, InternalStitchCommand, StitchPoint}, representations::*}, viewer::DisplayCommand};
+use crate::{process::{FixedHookCalculator, Group, Processor, Result, failed_assert_internal, intermediate::{Highlight, InternalStitchCommand, StitchPoint}, representations::*}, viewer::DisplayCommand};
 
 #[cfg(not(target_arch = "wasm32"))]
 use colored::Colorize;
@@ -99,7 +99,7 @@ impl Move {
 }
 
 impl StitchCommand {
-    fn row_to_stitches(chain: Highlight, row: &[Move]) -> Vec<Self> {
+    fn row_to_stitches(chain: Highlight, row: &[Move]) -> Result<Vec<Self>> {
         fn arbitrary_push(nexts: &mut Vec<Vec<(usize, Highlight)>>, index: usize, value: (usize, Highlight)) {
             while nexts.len() <= index {
                 if nexts.len() == index {
@@ -130,9 +130,10 @@ impl StitchCommand {
                         arbitrary_push(&mut nexts, index, (curr, highlight))
                     }
                     curr += 1;
-                    if curr < total_currs {
-                        connected_nexts.push((curr, item.highlight));
-                    }
+                    // if curr < total_currs {
+                    //     connected_nexts.push((curr, item.highlight));
+                    // }
+                    connected_nexts.push((curr, item.highlight));
                     connected_currs.clear();
                 },
                 MoveStitch::Next => {
@@ -160,7 +161,9 @@ impl StitchCommand {
         // Preprocess to remove zig-zags
         let mut popped = 0;
         for (next, next_stitch) in nexts.clone().iter().enumerate() {
-            let (curr, _) = next_stitch.last().expect("Should not be empty");
+            let Some((curr, _)) = next_stitch.last() else {
+                return Err(failed_assert_internal::<17>(None))
+            };
             if next_stitch.len() - popped == 1 {
                 if let Some(vh) = nexts.get_mut(next + 1) &&
                 vh.first().map(|(curr, _)| curr) == Some(curr) &&
@@ -204,10 +207,10 @@ impl StitchCommand {
             }
         }
 
-        result
+        Ok(result)
     }
 
-    pub fn from_internal(stitches: Vec<InternalStitchCommand>, magic_circle: usize, magic_highlights: Vec<Highlight>) -> Vec<Self> {
+    pub fn from_internal(stitches: Vec<InternalStitchCommand>, magic_circle: usize, magic_highlights: Vec<Highlight>) -> Result<Vec<Self>> {
         use InternalStitchCommand as ISC;
         use MoveStitch::*;
         let mut result = vec![Self::MagicCircle(magic_circle, magic_highlights)];
@@ -219,7 +222,7 @@ impl StitchCommand {
                 ISC::MoveNext(highlight) => Move::new(Next, highlight),
                 ISC::NextRow(ss, next_chain) => {
                     if !currv.is_empty() {
-                        result.append(&mut Self::row_to_stitches(chain, &currv));
+                        result.append(&mut Self::row_to_stitches(chain, &currv)?);
                         currv.clear();
                     }
                     chain = next_chain;
@@ -231,9 +234,9 @@ impl StitchCommand {
         }
 
         // println!("{:?}", currv.iter().map(|m| m.stitch).collect::<Vec<_>>());
-        result.append(&mut Self::row_to_stitches(chain, &currv));
+        result.append(&mut Self::row_to_stitches(chain, &currv)?);
         
-        result
+        Ok(result)
     }
 }
 
@@ -306,7 +309,7 @@ impl StitchFormatter {
         match format {
             StitchFormatChoice::StitchPoint => Self::StitchPoint(StitchPointFormat::from_intermediate(vec.into())),
             StitchFormatChoice::Worded => Self::Worded(WordedFormat::from_intermediate(vec.into(), metadata)),
-            StitchFormatChoice::CrochetParade => Self::CrochetParade(CrochetParadeFormat::from_intermediate(vec.into())),
+            StitchFormatChoice::CrochetParade => Self::CrochetParade(CrochetParadeFormat::from_intermediate(vec.into(), metadata)),
         }
     }
 }

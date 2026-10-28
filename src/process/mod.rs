@@ -219,11 +219,11 @@ impl Processor {
     }
 
     fn generate_from_seed(&mut self, position: PVec3, face_index: usize, calculator: FixedHookCalculator) -> Result<Output> {
-        println!("{position:?} {face_index}");
-        #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
-        let position = PVec3::from([32.97618, -84.727356, -35.73342]);
-        #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
-        let face_index = 8457;
+        println!("{:?} {face_index}", position.arr());
+        // #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+        // let position = PVec3::from([9.306709, 22.692314, 4.839821]);
+        // #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
+        // let face_index = 258678;
         const STITCH_SIZE_EPSILON_MULTIPLIER: f32 = 0.25;
         
         let stitch_size = calculator.relative_to_stl(1.0, true);
@@ -256,7 +256,7 @@ impl Processor {
         let map = self.get_isoline_map(isolines);
         let tree = self.connect(&map, isolines)?;
         let (internal_stitches, boundary_info) = self.tree_into_stitches(tree, calculator, &map)?;
-        let stitch_commands = StitchCommand::from_internal(internal_stitches, boundary_info.magic_circle, boundary_info.magic_highlights);
+        let stitch_commands = StitchCommand::from_internal(internal_stitches, boundary_info.magic_circle, boundary_info.magic_highlights)?;
         let metadata = Metadata { final_highlights: boundary_info.final_circle, calculator };
         let readable_commands = StitchDisplay::from_internal(representations::StitchFormatChoice::Worded, stitch_commands, metadata);
         self.overwrite_debug_stitches(&readable_commands);

@@ -81,6 +81,10 @@ impl PVec3 {
         Self { vec: [value; 3] }
     }
 
+    pub fn arr(self) -> [f32; 3] {
+        self.vec
+    }
+
     pub fn magnitude(self) -> f32 {
         self.magnitude_squared().sqrt()
     }
