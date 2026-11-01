@@ -356,7 +356,7 @@ impl Viewer {
                             self.processor = start_command(self.model.clone(), &self.self_sender, self.processor.take(), ProcessorCommand::ReverseTraverse { face_index: face, position: hit.into() }, self.selected_stitch.clone());
                         }
                     },
-                    Event::KeyPress { kind: Key::ArrowLeft, modifiers: _, handled: false } => {
+                    Event::KeyPress { kind: Key::ArrowLeft | Key::X, modifiers: _, handled: false } => {
                         let mut lock = self.selected_stitch.lock().unwrap();
                         if let Some(stitch) = *lock {
                             if stitch == 0 {
@@ -392,7 +392,7 @@ impl Viewer {
                     Event::KeyPress { kind: Key::Q, modifiers: _, handled: false } => {
                         self.cam.upwards(-self.cam.distance() * 0.8 * frame_input.elapsed_time as f32 * 0.001);
                     },
-                    Event::KeyPress { kind: Key::ArrowRight, modifiers: _, handled: false } => {
+                    Event::KeyPress { kind: Key::ArrowRight | Key::C, modifiers: _, handled: false } => {
                         let mut lock = self.selected_stitch.lock().unwrap();
                         let stitch = lock.map(|v| v + 1).unwrap_or(0);
                         *lock = Some(stitch);
